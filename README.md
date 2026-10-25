@@ -1,3 +1,15 @@
+<!--
+HOW TO DEVELOP THIS FILE (invisible when rendered on GitHub)
+Purpose: the front page. A stranger should learn in one minute what this is, what is proven, and how to start.
+Edit it when: you add/remove a doc, workflow or script; a verification status changes; the quick start changes.
+How:
+  1. Keep the "Documentation map" numbering in step with the files in docs/ (check: ls docs).
+  2. Keep the "Verification status" table honest. Mark something "Verified live" only after you ran it in
+     GitHub Actions. Change "not yet run live" rows the moment you run them.
+  3. Keep the disclaimer block. Do not add names, keys or repo names of your own projects.
+  4. After editing: check every relative link still resolves (see MAINTAINING.md, "Link check").
+  5. Record the change in CHANGELOG.md.
+-->
 # AI Software-Engineering Pipeline Starter
 
 A reusable kit that turns a rough idea into a reviewed draft pull request, mostly without you.
@@ -69,7 +81,7 @@ This kit was built interactively and tested in stages. Be clear about what is pr
 | YAML parses, `run.py` compiles, bash scripts pass syntax check | Verified locally |
 | Issue interviewer, `/go` dispatch, research and plan stages in Actions | Verified live (design stage not yet triggered) |
 | Report-back comment on the issue | Verified live |
-| Devin building on a branch, tester, reviewer, draft PR | Written; a full run was in progress when this was updated, **not yet confirmed end to end** |
+| Devin building on a branch, tester, reviewer, draft PR | Verified in a live full run (reported by the author: the draft PR was raised and merged). Later changes to these stages are tracked in the rows below |
 | CI workflow, `/fix`, `/status`, `/stop`, `/queue`, `[project]` planner and queue, `[bug]` form, one-run-at-a-time, `metrics.json` | Written. `run.py` fix mode, metrics and CI dispatch tested with stubs in a scratch repo; `project_plan.py` parsing tested; **workflows not yet run in Actions** |
 | `harden-repo.sh` / `.ps1`, `CODEOWNERS`, `dependabot.yml`, PR template | Written, `install.sh` tested (owner fill-in, keep-existing); **hardening scripts never run against live GitHub**; PowerShell scripts untested |
 | Unit-test enforcement (planner, Devin, tester, reviewer prompts plus an orchestrator gate) | Gate tested in a scratch repo; **not yet run in Actions** |

@@ -1,3 +1,9 @@
+# HOW TO DEVELOP THIS FILE
+# Purpose: keeps files that must never be committed out of this repo.
+# Edit it when: a new tool creates files you should not commit (editor folders, build output, local notes).
+# How: add one pattern per line; check with `git status` that the file now disappears; never remove the .env lines.
+# Note: this is the kit's own .gitignore. template/.gitignore.pipeline is a different file: the lines the
+#       installer appends to a user's project.
 .DS_Store
 __pycache__/
 *.pyc
