@@ -1,0 +1,53 @@
+name: CI
+
+# Runs on every pull request and on demand. The pipeline starts it for the pull requests it opens,
+# because pull requests opened with the Actions token do not trigger workflows by themselves.
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Node project
+        if: ${{ hashFiles('package.json') != '' }}
+        run: |
+          set -e
+          if   [ -f pnpm-lock.yaml ]; then npm i -g pnpm; pnpm install --frozen-lockfile; RUN="pnpm run"
+          elif [ -f yarn.lock ];      then yarn install --frozen-lockfile; RUN="yarn"
+          elif [ -f package-lock.json ]; then npm ci; RUN="npm run"
+          else npm install; RUN="npm run"; fi
+          for script in lint typecheck test build; do
+            if node -e "process.exit(require('./package.json').scripts?.['$script'] ? 0 : 1)"; then
+              echo "::group::$script"; $RUN $script; echo "::endgroup::"
+            else
+              echo "No '$script' script; skipping."
+            fi
+          done
+
+      - name: Python project
+        if: ${{ hashFiles('requirements.txt', 'pyproject.toml') != '' }}
+        run: |
+          set -e
+          [ -f requirements.txt ] && pip install -r requirements.txt
+          [ -f pyproject.toml ] && pip install -e . 2>/dev/null || true
+          pip install pytest ruff
+          ruff check . || true
+          python -m pytest -q
+
+      - name: Nothing to check yet
+        if: ${{ hashFiles('package.json', 'requirements.txt', 'pyproject.toml') == '' }}
+        run: echo "No package.json, requirements.txt or pyproject.toml yet. Nothing to run."

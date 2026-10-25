@@ -1,0 +1,30 @@
+flowchart TD
+  P0["📱 [project] or [bug] issue"]:::human -.-> Q0["AI splits into queued [idea] issues<br/>(built, not verified)"]:::planned
+  Q0 -.-> A
+  A["📱 You: new [idea] issue<br/>(GitHub mobile)"]:::human --> B["Interviewer (Claude)<br/>asks questions"]
+  B -->|STATUS: QUESTIONS| C["📱 You answer in comments"]:::human
+  C --> B
+  B -->|STATUS: READY<br/>brief posted| D["📱 You: comment /go review"]:::human
+  D --> E["GitHub Actions starts run<br/>new branch pipeline/timestamp"]
+  E --> F["Researcher (Claude)"]
+  F --> G["Planner (Claude)<br/>writes spec.md"]
+  G -->|STATUS: BLOCKED| H["Run stops, questions posted<br/>📱 you answer, re-run"]:::human
+  G -->|READY, NEEDS_DESIGN: yes| I["Designer (Claude)"]
+  G -->|READY, NEEDS_DESIGN: no| J
+  I --> J["Devin builds on the branch<br/>(cloud, no PR)"]
+  J -->|pushed no commits| K["Run stops<br/>check Devin session"]:::stop
+  J --> L["Install deps<br/>npm / pip"]
+  L --> M["Tester (Claude)<br/>runs tests and build"]
+  M -->|RESULT: FAIL<br/>retry up to 2| J
+  M -->|RESULT: PASS| N["Reviewer (Claude, read-only)"]
+  N -->|NEEDS WORK<br/>retry up to 2| J
+  N -->|SHIP / NEEDS WORK / BLOCK| O["Draft PR opened by orchestrator<br/>CI started on the branch"]
+  O --> P["📱 You review diff and test results"]:::human
+  P -->|looks good| Q["📱 You merge"]:::human
+  P -->|changes wanted| R["/fix comment<br/>(built, not verified)"]:::planned
+  R --> J
+  Q --> S["Next queued idea offered<br/>/queue start or auto<br/>(built, not verified)"]:::planned
+  S --> E
+  classDef human fill:#fde68a,stroke:#b45309,color:#111
+  classDef stop fill:#fecaca,stroke:#b91c1c,color:#111
+  classDef planned fill:#dbeafe,stroke:#1d4ed8,stroke-dasharray:5 3,color:#111

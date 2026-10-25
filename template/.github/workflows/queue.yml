@@ -1,0 +1,47 @@
+name: Queue
+
+# After YOU merge a pipeline pull request, offer (or start) the next queued idea.
+# Auto-start spends Devin and API usage, so it is OFF unless the repository variable
+# PIPELINE_AUTO_QUEUE is set to "true". Otherwise you start the next one with "/queue start".
+on:
+  pull_request:
+    types: [closed]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  actions: write
+
+jobs:
+  next:
+    if: ${{ github.event_name == 'workflow_dispatch' || (github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'pipeline/') && github.event.pull_request.merged_by.login == github.repository_owner) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: pipeline
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      AUTO: ${{ vars.PIPELINE_AUTO_QUEUE }}
+      EVENT: ${{ github.event_name }}
+      PR: ${{ github.event.pull_request.number }}
+    steps:
+      - name: Next queued idea
+        run: |
+          set -euo pipefail
+          # The idea this PR finished (if any) is no longer "running".
+          for n in $(gh issue list --label running --state open --json number --jq '.[].number'); do
+            gh issue edit "$n" --remove-label running >/dev/null || true
+            gh issue close "$n" --comment "Merged${PR:+ in #$PR}." >/dev/null || true
+          done
+          next=$(gh issue list --label queued --state open --json number --jq 'sort_by(.number) | .[0].number // empty')
+          if [ -z "$next" ]; then echo "Queue is empty."; exit 0; fi
+          if [ "$EVENT" != "workflow_dispatch" ] && [ "$AUTO" != "true" ]; then
+            gh issue comment "$next" --body "This is next in the queue. Reply \`/queue start\` on any issue or pull request to build it (or set the repository variable PIPELINE_AUTO_QUEUE=true to start automatically after each merge)."
+            exit 0
+          fi
+          gh label create running --color 1d76db --description "Pipeline is building this" 2>/dev/null || true
+          gh issue view "$next" --json body --jq .body > /tmp/idea.md
+          gh issue edit "$next" --remove-label queued --add-label running
+          gh workflow run pipeline.yml -f idea="$(cat /tmp/idea.md)" -f until=review -f issue="$next"
+          gh issue comment "$next" --body "Pipeline started for this queued idea."

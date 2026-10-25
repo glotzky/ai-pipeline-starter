@@ -1,0 +1,60 @@
+name: Commands
+
+# Owner-only slash commands on issues and pull requests:
+#   /status        latest pipeline runs
+#   /stop          cancel runs in progress (the Devin session must be stopped in Devin)
+#   /fix <text>    on a pipeline pull request: send feedback to Devin on the same branch
+#   /queue start   start the next queued idea
+on:
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+  actions: write
+
+jobs:
+  commands:
+    if: ${{ github.event.sender.login == github.repository_owner && (startsWith(github.event.comment.body, '/status') || startsWith(github.event.comment.body, '/stop') || startsWith(github.event.comment.body, '/fix') || startsWith(github.event.comment.body, '/queue')) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    environment: pipeline
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      N: ${{ github.event.issue.number }}
+      IS_PR: ${{ github.event.issue.pull_request != null }}
+      COMMENT: ${{ github.event.comment.body }}
+    steps:
+      - name: Run command
+        run: |
+          set -euo pipefail
+          first=$(printf '%s' "$COMMENT" | head -n1 | tr -d '\r')
+          cmd=$(printf '%s' "$first" | awk '{print tolower($1)}')
+          arg=$(printf '%s' "$first" | cut -d' ' -f2-)
+          [ "$arg" = "$first" ] && arg=""
+          case "$cmd" in
+            /status)
+              out=$(gh run list --workflow pipeline.yml --limit 3 --json status,conclusion,createdAt,url \
+                --jq '.[] | "- \(.createdAt): \(.status) \(.conclusion // "") \(.url)"')
+              gh issue comment "$N" --body "Latest pipeline runs:"$'\n'"${out:-none}" ;;
+            /stop)
+              ids=$(gh run list --workflow pipeline.yml --json databaseId,status --jq '.[] | select(.status=="in_progress" or .status=="queued") | .databaseId')
+              if [ -z "$ids" ]; then gh issue comment "$N" --body "No pipeline run is in progress."; exit 0; fi
+              for id in $ids; do gh run cancel "$id"; done
+              gh issue comment "$N" --body "Cancelled the running pipeline job(s). A Devin session that already started keeps running: stop it in Devin to save usage." ;;
+            /fix)
+              if [ "$IS_PR" != "true" ]; then gh issue comment "$N" --body '`/fix` works on a pull request opened by the pipeline.'; exit 0; fi
+              if [ -z "$arg" ]; then gh issue comment "$N" --body 'Add what to change: `/fix <your feedback>`.'; exit 0; fi
+              head=$(gh pr view "$N" --json headRefName --jq .headRefName)
+              case "$head" in pipeline/*) ;; *) gh issue comment "$N" --body '`/fix` only works on `pipeline/*` branches.'; exit 0;; esac
+              # Include any extra lines of the comment as part of the feedback.
+              text=$(printf '%s' "$COMMENT" | tr -d '\r' | sed '1s#^/[Ff][Ii][Xx] *##')
+              gh workflow run pipeline.yml -f idea="$text" -f until=review -f issue="$N" -f fix_branch="$head"
+              gh issue comment "$N" --body "Sending your feedback to Devin on \`$head\`. I will comment here when it is done." ;;
+            /queue)
+              gh workflow run queue.yml
+              gh issue comment "$N" --body "Looking for the next queued idea." ;;
+          esac

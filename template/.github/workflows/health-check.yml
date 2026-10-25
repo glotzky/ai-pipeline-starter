@@ -1,0 +1,82 @@
+name: Health check
+
+on:
+  workflow_dispatch:
+    inputs:
+      test_devin_session:
+        description: "Also start a tiny real Devin session (uses a little quota)"
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    environment: pipeline
+    timeout-minutes: 10
+    env:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      DEVIN_API_KEY: ${{ secrets.DEVIN_API_KEY }}
+      DEVIN_ORG_ID: ${{ secrets.DEVIN_ORG_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Required files exist
+        run: |
+          missing=0
+          for f in pipeline/run.py .claude/agents/researcher.md .claude/agents/planner.md .claude/agents/designer.md .claude/agents/tester.md .claude/agents/reviewer.md .claude/agents/interviewer.md .github/workflows/pipeline.yml .github/workflows/intake.yml .github/ISSUE_TEMPLATE/idea.yml .github/workflows/ci.yml .github/workflows/commands.yml .github/workflows/queue.yml .github/workflows/project-plan.yml .claude/agents/project-planner.md pipeline/project_plan.py .github/PULL_REQUEST_TEMPLATE.md; do
+            if [ -f "$f" ]; then echo "ok   $f"; else echo "MISSING $f"; missing=1; fi
+          done
+          exit $missing
+
+      - name: Secrets are set
+        run: |
+          : "${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY is empty or not in this environment}"
+          : "${DEVIN_API_KEY:?DEVIN_API_KEY is empty or not in this environment}"
+          : "${DEVIN_ORG_ID:?DEVIN_ORG_ID is empty or not in this environment}"
+          echo "all three secrets present"
+
+      - name: orchestrator compiles
+        run: python -m py_compile pipeline/run.py pipeline/project_plan.py && echo ok
+
+      - name: Devin credentials (free call)
+        run: |
+          set -euo pipefail
+          body=$(curl -sS -w '\n%{http_code}' https://api.devin.ai/v3/self -H "Authorization: Bearer $DEVIN_API_KEY")
+          code=$(printf '%s' "$body" | tail -n1)
+          json=$(printf '%s' "$body" | sed '$d')
+          echo "HTTP $code"
+          [ "$code" = "200" ] || { echo "Devin rejected the key: $json"; exit 1; }
+          org=$(printf '%s' "$json" | python3 -c "import sys,json;print(json.load(sys.stdin).get('org_id'))")
+          [ "$org" = "$DEVIN_ORG_ID" ] || { echo "Key belongs to org $org but DEVIN_ORG_ID secret is different"; exit 1; }
+          echo "Devin key valid and matches DEVIN_ORG_ID"
+
+      - name: Devin can start a session (optional, tiny cost)
+        if: ${{ inputs.test_devin_session }}
+        run: |
+          set -euo pipefail
+          out=$(curl -sS -w '\n%{http_code}' -X POST "https://api.devin.ai/v3/organizations/$DEVIN_ORG_ID/sessions" \
+            -H "Authorization: Bearer $DEVIN_API_KEY" -H "Content-Type: application/json" \
+            -d '{"prompt":"Health check from the pipeline. Say hello and stop. Do not touch any repository."}')
+          code=$(printf '%s' "$out" | tail -n1)
+          echo "HTTP $code"
+          printf '%s' "$out" | sed '$d'
+          echo
+          [ "$code" = "200" ] || { echo "Session creation failed (a 403 out_of_quota means Devin billing/extra usage)"; exit 1; }
+
+      - name: Anthropic key and Claude CLI work
+        run: |
+          set -euo pipefail
+          npm install -g @anthropic-ai/claude-code
+          out=$(claude -p "Reply with the single word OK" --model claude-haiku-5-5 --max-turns 1)
+          echo "claude said: $out"
+          printf '%s' "$out" | grep -qi 'ok'

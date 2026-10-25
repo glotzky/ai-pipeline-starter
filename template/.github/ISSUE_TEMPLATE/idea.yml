@@ -1,0 +1,16 @@
+name: Idea
+description: Describe a rough idea. An AI interviewer asks follow-ups, then you approve a build.
+title: "[idea] "
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: Your idea
+      description: Rough is fine. What do you want, and why?
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else? (optional)
+      description: Constraints, examples, things to avoid.

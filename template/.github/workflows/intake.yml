@@ -1,0 +1,102 @@
+name: Idea intake
+
+on:
+  issues:
+    types: [opened]
+  issue_comment:
+    types: [created]
+
+permissions:
+  contents: read
+  issues: write
+  actions: write
+
+concurrency:
+  group: intake-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+jobs:
+  intake:
+    # Only the repo owner's activity on issues titled "[idea] ..." is acted on.
+    if: ${{ (startsWith(github.event.issue.title, '[idea]') || startsWith(github.event.issue.title, '[bug]')) && github.event.sender.login == github.repository_owner && !github.event.issue.pull_request }}
+    runs-on: ubuntu-latest
+    environment: pipeline
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      N: ${{ github.event.issue.number }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Route
+        id: route
+        env:
+          EVENT: ${{ github.event_name }}
+          COMMENT: ${{ github.event.comment.body }}
+        run: |
+          mode=interview; until=review
+          first=$(printf '%s' "$COMMENT" | head -n1 | tr -d '\r')
+          if [ "$EVENT" = "issue_comment" ] && printf '%s' "$first" | grep -qiE '^/(status|stop|queue|fix)( |$)'; then
+            mode=skip   # handled by the Commands workflow
+          elif [ "$EVENT" = "issue_comment" ] && printf '%s' "$first" | grep -qiE '^/go( |$)'; then
+            mode=go
+            arg=$(printf '%s' "$first" | awk '{print tolower($2)}')
+            case "$arg" in research|plan|design|dev|test|review) until=$arg;; esac
+          fi
+          echo "mode=$mode" >> "$GITHUB_OUTPUT"
+          echo "until=$until" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/setup-node@v4
+        if: steps.route.outputs.mode == 'interview'
+        with:
+          node-version: "22"
+
+      - name: Interview (ask questions or write the brief)
+        if: steps.route.outputs.mode == 'interview'
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          set -euo pipefail
+          npm install -g @anthropic-ai/claude-code
+          mkdir -p .intake
+          gh issue view "$N" --json title,body,comments --jq '"# " + .title + "\n\n## Original idea\n" + .body + "\n\n" + ([.comments[] | "## Comment by " + .author.login + "\n" + .body] | join("\n\n"))' > .intake/thread.md
+          SYS=$(awk '/^---$/{c++; next} c>=2' .claude/agents/interviewer.md)
+          claude -p "Read .intake/thread.md and do your job." --model claude-sonnet-5-5 \
+            --append-system-prompt "$SYS" --allowedTools "Read,Grep,Glob" --max-turns 20 > .intake/out.md
+          first=$(head -n1 .intake/out.md | tr -d '\r')
+          if printf '%s' "$first" | grep -q '^STATUS:'; then
+            tail -n +2 .intake/out.md > .intake/body.md
+          else
+            cp .intake/out.md .intake/body.md
+          fi
+          if printf '%s' "$first" | grep -q 'STATUS: READY'; then
+            {
+              echo '<!-- brief-start -->'
+              cat .intake/body.md
+              echo
+              echo '<!-- brief-end -->'
+              echo
+              echo '---'
+              echo '**Happy with this brief?** Reply `/go` to run the full pipeline (research, plan, build with Devin, test, review, draft PR). Use `/go plan` to stop after the plan, or reply with changes and I will revise the brief.'
+            } > .intake/comment.md
+          else
+            cp .intake/body.md .intake/comment.md
+          fi
+          gh issue comment "$N" --body-file .intake/comment.md
+
+      - name: Start the pipeline
+        if: steps.route.outputs.mode == 'go'
+        env:
+          UNTIL: ${{ steps.route.outputs.until }}
+        run: |
+          set -euo pipefail
+          mkdir -p .intake
+          gh issue view "$N" --json comments --jq '[.comments[] | select(.author.login == "github-actions" and (.body | contains("<!-- brief-start -->")))] | last | .body // ""' > .intake/last.md
+          awk '/<!-- brief-start -->/{f=1;next} /<!-- brief-end -->/{f=0} f' .intake/last.md > .intake/brief.md
+          if [ ! -s .intake/brief.md ]; then
+            gh issue comment "$N" --body 'I do not have a brief to run yet. Answer my questions (or reply `defaults`) and I will post one.'
+            exit 0
+          fi
+          gh workflow run pipeline.yml -f idea="$(cat .intake/brief.md)" -f until="$UNTIL" -f issue="$N"
+          gh issue comment "$N" --body "Pipeline started (stops after: \`$UNTIL\`). Progress: https://github.com/$GH_REPO/actions/workflows/pipeline.yml . I will comment here when it finishes."

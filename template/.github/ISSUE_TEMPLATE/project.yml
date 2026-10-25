@@ -1,0 +1,11 @@
+name: Project plan
+description: Paste a whole project plan. AI breaks it into ordered slices and queues them as ideas.
+title: "[project] "
+body:
+  - type: textarea
+    id: plan
+    attributes:
+      label: Project plan
+      description: Goals, users, features, constraints. Rough is fine. Nothing is built until you start the queue.
+    validations:
+      required: true

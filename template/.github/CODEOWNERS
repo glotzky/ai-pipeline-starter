@@ -1,0 +1,6 @@
+# Changes to the pipeline itself always need the owner's review.
+# install.sh replaces OWNER with your GitHub username when it can; otherwise edit this file.
+/.github/   @OWNER
+/.claude/   @OWNER
+/pipeline/  @OWNER
+/CLAUDE.md  @OWNER

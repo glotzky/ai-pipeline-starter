@@ -1,0 +1,8 @@
+# --- added by ai-pipeline-starter ---
+.intake/
+.DS_Store
+node_modules/
+__pycache__/
+.env
+.env.*
+!.env.example

@@ -1,0 +1,43 @@
+name: Project plan
+
+# Issue titled "[project] ..." from the owner: Claude breaks the plan into ordered slices and
+# creates one "[idea]" issue per slice, labeled "queued". Nothing is built until you start it.
+on:
+  issues:
+    types: [opened]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  plan:
+    if: ${{ startsWith(github.event.issue.title, '[project]') && github.event.sender.login == github.repository_owner }}
+    runs-on: ubuntu-latest
+    environment: pipeline
+    timeout-minutes: 15
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      N: ${{ github.event.issue.number }}
+      ISSUE_TITLE: ${{ github.event.issue.title }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Break the plan into slices
+        run: |
+          set -euo pipefail
+          npm install -g @anthropic-ai/claude-code
+          mkdir -p .project
+          gh issue view "$N" --json body --jq '"# " + env.ISSUE_TITLE + "\n\n" + .body' > .project/plan.md
+          SYS=$(awk '/^---$/{c++; next} c>=2' .claude/agents/project-planner.md)
+          claude -p "Read .project/plan.md and do your job." --model claude-opus-5-5 \
+            --append-system-prompt "$SYS" --allowedTools "Read,Grep,Glob" --max-turns 25 > .project/out.md
+      - name: Create the queue
+        run: python pipeline/project_plan.py .project/out.md "$N"
