@@ -5,16 +5,20 @@ Handoffs are files in .pipeline/ committed to a per-run branch. Claude stages ru
 Claude Code CLI (`claude -p`); the developer stage is Devin, driven through its v3 API.
 """
 import argparse, json, os, re, shutil, subprocess, sys, tempfile, time
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
+
+from run_metrics import Recorder, parse_claude_output, scrub
 
 ROOT = Path(__file__).resolve().parent.parent
 PIPE = ROOT / ".pipeline"
 AGENTS = ROOT / ".claude" / "agents"
 BASE_BRANCH = os.environ.get("BASE_BRANCH", "main")
 REPO = os.environ.get("GITHUB_REPOSITORY", "")
+REC = None  # metrics Recorder, created in main(); None-safe everywhere it is used
 STAGES = ["research", "plan", "design", "dev", "test", "review"]
 
 
@@ -68,19 +72,26 @@ def load_agent(name):
     return {k.strip(): v.strip() for k, v in meta.items()}, m.group(2).strip()
 
 
-def claude_stage(name, task, max_turns=40):
+def claude_stage(name, task, max_turns=40, attempt=1):
     meta, body = load_agent(name)
     print(f"\n=== {name} ({meta['model']}) ===", flush=True)
-    r = subprocess.run(
-        ["claude", "-p", task, "--model", meta["model"], "--append-system-prompt", body,
-         "--permission-mode", "acceptEdits", "--max-turns", str(max_turns),
-         "--allowedTools", ",".join(t.strip() for t in meta["tools"].split(","))],
-        cwd=ROOT, capture_output=True, text=True)
-    (PIPE / "logs").mkdir(parents=True, exist_ok=True)
-    (PIPE / "logs" / f"{name}.txt").write_text(r.stdout + "\n---STDERR---\n" + r.stderr)
-    if r.returncode != 0:
-        raise RuntimeError(f"{name} failed (exit {r.returncode}):\n{r.stderr[-2000:]}")
-    return r.stdout.strip()
+    with REC.stage(name, attempt) if REC else nullcontext():
+        r = subprocess.run(
+            ["claude", "-p", task, "--model", meta["model"], "--append-system-prompt", body,
+             "--permission-mode", "acceptEdits", "--max-turns", str(max_turns),
+             "--output-format", "json",
+             "--allowedTools", ",".join(t.strip() for t in meta["tools"].split(","))],
+            cwd=ROOT, capture_output=True, text=True)
+        # JSON output carries token counts and cost. If it is not the expected JSON, the raw text is
+        # used exactly as before and no usage is recorded.
+        text, usage = parse_claude_output(r.stdout)
+        if REC:
+            REC.usage(name, meta["model"], usage)
+        (PIPE / "logs").mkdir(parents=True, exist_ok=True)
+        (PIPE / "logs" / f"{name}.txt").write_text(text + "\n---STDERR---\n" + r.stderr)
+        if r.returncode != 0:
+            raise RuntimeError(f"{name} failed (exit {r.returncode}):\n{r.stderr[-2000:]}")
+        return text.strip()
 
 
 def install_deps():
@@ -210,6 +221,9 @@ def main():
             f.write(f"\n## Fix request {run_id}\n{a.idea}\n")
     else:
         (PIPE / "idea.md").write_text(a.idea + "\n")
+    global REC
+    REC = Recorder(ROOT, run_id, "fix" if fix else "run", a.until, branch,
+                   enabled=os.environ.get("PIPELINE_METRICS", "1") != "0")
     summary = [f"# Pipeline {'fix' if fix else 'run'} {run_id}", f"{'Feedback' if fix else 'Idea'}: {a.idea}", f"Branch: `{branch}`", ""]
 
     def write_summary():
@@ -220,11 +234,20 @@ def main():
         # The workflow posts this file to the issue so you can see why a run stopped.
         (Path(os.environ.get("RUNNER_TEMP", tempfile.gettempdir())) / "pipeline-summary.md").write_text(out)
 
-    def stop(stage, note=None, code=0):
+    def stop(stage, note=None, code=0, reason=None, post=None):
+        """End the run. Finishes the metrics record first so the final record is in the pushed commit."""
         if note:
             summary.append(note)
+        if stage == "done":
+            REC.finish("success", "completed")
+        elif code:
+            REC.finish("failure", reason or f"stopped_at_{stage}")
+        else:
+            REC.finish("stopped", reason or f"until_{stage}")
         commit_and_push(branch, f"pipeline: {stage}")
         write_summary()
+        if post:
+            post()
         sys.exit(code)
 
     def reached(stage):
@@ -238,7 +261,7 @@ def main():
             claude_stage("planner", "Do your job for the idea in .pipeline/idea.md.")
             spec = read("spec.md")
             if not re.search(r"^STATUS:\s*READY", spec, re.M):
-                stop("plan", "**Planner marked the spec BLOCKED.** Read .pipeline/spec.md on the branch.")
+                stop("plan", "**Planner marked the spec BLOCKED.** Read .pipeline/spec.md on the branch.", reason="planner_blocked")
             if reached("plan"): stop("plan", "Stopped after plan.")
 
             if re.search(r"NEEDS_DESIGN:\s*yes", spec, re.I):
@@ -252,7 +275,9 @@ def main():
         verdict, result, devin_urls, acu_sum = "UNKNOWN", "UNKNOWN", [], 0.0
         for attempt in range(a.max_retries + 1):
             print(f"\n##### Developer attempt {attempt + 1} #####", flush=True)
-            url, status, acus = devin_run(devin_prompt(branch, feedback), a.devin_timeout)
+            with REC.stage("developer", attempt + 1):
+                url, status, acus = devin_run(devin_prompt(branch, feedback), a.devin_timeout)
+            REC.developer_attempt(acus)
             devin_urls.append(f"{url} ({acus} ACUs)")
             try:
                 acu_sum += float(acus or 0)
@@ -261,11 +286,12 @@ def main():
             before = sh("git", "rev-parse", "HEAD")
             sh("git", "pull", "--ff-only", "origin", branch)
             if sh("git", "rev-parse", "HEAD") == before:
-                stop("dev", f"**Devin finished ({status}) but pushed no commits.** Open the session to see why (often: Devin cannot access the repo). Session: {url}", code=1)
+                stop("dev", f"**Devin finished ({status}) but pushed no commits.** Open the session to see why (often: Devin cannot access the repo). Session: {url}", code=1, reason="devin_no_commits")
             if reached("dev"): stop("dev", f"Stopped after dev. Devin session: {url} ({acus} ACUs)")
-            install_deps()
+            with REC.stage("install", attempt + 1):
+                install_deps()
 
-            claude_stage("tester", "Do your job for the changes on this branch.", max_turns=60)
+            claude_stage("tester", "Do your job for the changes on this branch.", max_turns=60, attempt=attempt + 1)
             results = read("test-results.md")
             result = "PASS" if re.match(r"\s*RESULT:\s*PASS", results) else "FAIL"
             gap = missing_tests() if result == "PASS" else ""
@@ -273,49 +299,55 @@ def main():
                 result = "FAIL"
                 results = f"RESULT: FAIL\n{gap}\n\n(Tester report below)\n{results}"
                 (PIPE / "test-results.md").write_text(results)
+            REC.tests(result, gate_failed=bool(gap))
             commit_and_push(branch, f"pipeline: tests (attempt {attempt + 1}) {result}")
             if result == "FAIL" and attempt < a.max_retries:
                 feedback = "Tests failed:\n" + results
+                REC.retry("tests_failed")
                 continue
             if reached("test"): stop("test", f"Stopped after test. Result: {result}")
 
             review = claude_stage(
-                "reviewer", f"Review this branch against origin/{BASE_BRANCH}. Base branch: {BASE_BRANCH}.")
+                "reviewer", f"Review this branch against origin/{BASE_BRANCH}. Base branch: {BASE_BRANCH}.",
+                attempt=attempt + 1)
             (PIPE / "review.md").write_text(review + "\n")
             m = re.search(r"VERDICT:\s*(SHIP|NEEDS WORK|BLOCK)", review)
             verdict = m.group(1) if m else "UNKNOWN"
+            REC.review(verdict)
             commit_and_push(branch, f"pipeline: review (attempt {attempt + 1}) {verdict}")
             if verdict == "NEEDS WORK" and attempt < a.max_retries:
                 feedback = "Reviewer said NEEDS WORK:\n" + review
+                REC.retry("needs_work")
                 continue
             break
 
         minutes = (time.time() - started) / 60
         summary += [f"Tests: **{result}**", f"Verdict: **{verdict}**",
                     "Devin sessions: " + ", ".join(devin_urls),
-                    f"Metrics: {minutes:.0f} min, {len(devin_urls)} Devin attempt(s), {acu_sum:.1f} ACUs"]
-        (PIPE / "metrics.json").write_text(json.dumps({
-            "run": run_id, "fix": fix, "minutes": round(minutes, 1), "devin_attempts": len(devin_urls),
-            "acus": round(acu_sum, 2), "tests": result, "verdict": verdict}, indent=2) + "\n")
+                    f"Metrics: {minutes:.0f} min, {len(devin_urls)} Devin attempt(s), {acu_sum:.1f} ACUs "
+                    f"(full record: metrics/runs/{run_id}{"-fix" if fix else ""}.json)"]
         body = "\n".join(summary) + "\n\n---\n\n" + read("review.md")
         (PIPE / "pr-body.md").write_text(body)
-        if fix:
-            old_title = sh("gh", "pr", "view", branch, "--json", "title", "--jq", ".title")
-            clean = re.sub(r"^\[pipeline [A-Z ]+\]\s*", "", old_title)
-            sh("gh", "pr", "comment", branch, "--body-file", str(PIPE / "pr-body.md"))
-            sh("gh", "pr", "edit", branch, "--title", f"[pipeline {verdict}] {clean}")
-        else:
-            sh("gh", "pr", "create", "--draft", "--base", BASE_BRANCH, "--head", branch,
-               "--title", f"[pipeline {verdict}] {title}", "--body-file", str(PIPE / "pr-body.md"))
-        commit_and_push(branch, "pipeline: metrics")
-        # Pull requests opened with the Actions token do not trigger CI by themselves; start it explicitly.
-        sh("gh", "workflow", "run", "ci.yml", "--ref", branch, check=False)
-        stop("done")
+        with REC.stage("pull_request"):
+            if fix:
+                old_title = sh("gh", "pr", "view", branch, "--json", "title", "--jq", ".title")
+                clean = re.sub(r"^\[pipeline [A-Z ]+\]\s*", "", old_title)
+                sh("gh", "pr", "comment", branch, "--body-file", str(PIPE / "pr-body.md"))
+                sh("gh", "pr", "edit", branch, "--title", f"[pipeline {verdict}] {clean}")
+                REC.pull_request(updated=True, url=sh("gh", "pr", "view", branch, "--json", "url", "--jq", ".url", check=False))
+            else:
+                out = sh("gh", "pr", "create", "--draft", "--base", BASE_BRANCH, "--head", branch,
+                         "--title", f"[pipeline {verdict}] {title}", "--body-file", str(PIPE / "pr-body.md"))
+                REC.pull_request(created=True, url=out.splitlines()[-1] if out else None)
+        # Pull requests opened with the Actions token do not trigger CI by themselves; start it on the
+        # final commit (after the metrics record is pushed).
+        stop("done", post=lambda: sh("gh", "workflow", "run", "ci.yml", "--ref", branch, check=False))
     except SystemExit:
         raise
     except Exception as e:
         # Push whatever exists (including logs) so failures can be diagnosed from the branch.
-        summary.append(f"**FAILED:** {e}")
+        summary.append(f"**FAILED:** {scrub(e, 1500)}")
+        REC.finish("failure", "exception", error=e, force=True)
         try:
             commit_and_push(branch, "pipeline: failed (logs attached)")
         except Exception as e2:

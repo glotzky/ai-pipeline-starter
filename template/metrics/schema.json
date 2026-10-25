@@ -1,0 +1,492 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "pipeline-run-metrics",
+  "title": "AI pipeline run metrics",
+  "description": "One record per pipeline run, written to metrics/runs/<run_id>.json. null means 'not measured or not reported'; it is never a guess.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "run_id",
+    "kind",
+    "status",
+    "stop_reason",
+    "until",
+    "branch",
+    "started_at",
+    "ended_at",
+    "duration_seconds",
+    "github",
+    "stages",
+    "retries",
+    "tests",
+    "review",
+    "pull_request",
+    "devin",
+    "ai_usage",
+    "error"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "integer",
+      "enum": [
+        1
+      ]
+    },
+    "run_id": {
+      "type": "string",
+      "description": "UTC timestamp YYYYMMDD-HHMMSS; also the branch suffix pipeline/<run_id>"
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "run",
+        "fix"
+      ],
+      "description": "run = new idea; fix = /fix feedback applied to an existing branch"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "incomplete",
+        "success",
+        "failure",
+        "stopped"
+      ],
+      "description": "incomplete = the run never reported an end (killed, cancelled, timed out); stopped = deliberately ended early (--until, planner BLOCKED)"
+    },
+    "stop_reason": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "Short code such as completed, until_plan, planner_blocked, devin_no_commits, exception"
+    },
+    "until": {
+      "type": "string",
+      "enum": [
+        "research",
+        "plan",
+        "design",
+        "dev",
+        "test",
+        "review"
+      ]
+    },
+    "branch": {
+      "type": "string"
+    },
+    "started_at": {
+      "type": "string"
+    },
+    "ended_at": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "duration_seconds": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "github": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "workflow_run_id",
+        "run_attempt"
+      ],
+      "properties": {
+        "workflow_run_id": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "run_attempt": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        }
+      }
+    },
+    "stages": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "attempt",
+          "started_at",
+          "ended_at",
+          "duration_seconds",
+          "status",
+          "detail"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "enum": [
+              "researcher",
+              "planner",
+              "designer",
+              "developer",
+              "install",
+              "tester",
+              "reviewer",
+              "pull_request"
+            ]
+          },
+          "attempt": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "started_at": {
+            "type": "string"
+          },
+          "ended_at": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "duration_seconds": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "error",
+              "stopped",
+              "incomplete"
+            ]
+          },
+          "detail": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "retries": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "developer_attempts",
+        "retries",
+        "reasons"
+      ],
+      "properties": {
+        "developer_attempts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "retries": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "tests_failed",
+              "needs_work"
+            ]
+          }
+        }
+      }
+    },
+    "tests": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "result",
+        "attempts",
+        "gate_failed"
+      ],
+      "properties": {
+        "result": {
+          "type": "string",
+          "enum": [
+            "PASS",
+            "FAIL",
+            "not_run"
+          ]
+        },
+        "attempts": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "gate_failed": {
+          "type": "boolean",
+          "description": "true if the missing-unit-tests gate ever failed a run"
+        }
+      }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "verdict"
+      ],
+      "properties": {
+        "verdict": {
+          "type": "string",
+          "enum": [
+            "SHIP",
+            "NEEDS WORK",
+            "BLOCK",
+            "UNKNOWN",
+            "not_run"
+          ]
+        }
+      }
+    },
+    "pull_request": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "created",
+        "updated",
+        "number",
+        "url"
+      ],
+      "properties": {
+        "created": {
+          "type": "boolean"
+        },
+        "updated": {
+          "type": "boolean"
+        },
+        "number": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 0
+        },
+        "url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "devin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sessions",
+        "sessions_with_acus",
+        "acus_consumed"
+      ],
+      "properties": {
+        "sessions": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "sessions_with_acus": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "acus_consumed": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        }
+      }
+    },
+    "ai_usage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "calls",
+        "totals",
+        "cost_source"
+      ],
+      "properties": {
+        "calls": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "stage",
+              "model",
+              "input_tokens",
+              "output_tokens",
+              "cache_creation_input_tokens",
+              "cache_read_input_tokens",
+              "cost_usd",
+              "num_turns"
+            ],
+            "properties": {
+              "stage": {
+                "type": "string"
+              },
+              "model": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "input_tokens": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "output_tokens": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "cache_creation_input_tokens": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "cache_read_input_tokens": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "cost_usd": {
+                "type": [
+                  "number",
+                  "null"
+                ],
+                "minimum": 0
+              },
+              "num_turns": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "minimum": 0
+              }
+            }
+          }
+        },
+        "totals": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "calls",
+            "calls_with_cost",
+            "cost_complete",
+            "cost_usd",
+            "input_tokens",
+            "output_tokens",
+            "cache_creation_input_tokens",
+            "cache_read_input_tokens"
+          ],
+          "properties": {
+            "calls": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "calls_with_cost": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "cost_complete": {
+              "type": [
+                "boolean",
+                "null"
+              ]
+            },
+            "cost_usd": {
+              "type": [
+                "number",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "input_tokens": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "output_tokens": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "cache_creation_input_tokens": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            },
+            "cache_read_input_tokens": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "minimum": 0
+            }
+          }
+        },
+        "cost_source": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "claude_cli_reported",
+            null
+          ]
+        }
+      }
+    },
+    "error": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "message"
+      ],
+      "properties": {
+        "type": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    }
+  }
+}

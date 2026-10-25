@@ -71,12 +71,22 @@ jobs:
           FIX_BRANCH: ${{ inputs.fix_branch }}
           BASE_BRANCH: ${{ github.event.repository.default_branch }}
           PIPELINE_INSTALL_CMD: ${{ vars.PIPELINE_INSTALL_CMD }}
+          PIPELINE_METRICS: ${{ vars.PIPELINE_METRICS }}
         run: |
           if [ -n "$FIX_BRANCH" ]; then
             python pipeline/run.py "$IDEA" --until "$UNTIL" --fix-branch "$FIX_BRANCH"
           else
             python pipeline/run.py "$IDEA" --until "$UNTIL"
           fi
+      - name: Save run metrics
+        # Always runs, including after failure or cancellation. The record is also committed to the run's branch.
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-metrics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: metrics/runs/*.json
+          if-no-files-found: ignore
+          retention-days: 90
       - name: Report back to the issue
         if: ${{ always() && inputs.issue != '' }}
         env:

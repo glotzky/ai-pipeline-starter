@@ -70,6 +70,13 @@ Check a session: `GET https://api.devin.ai/v3/organizations/$DEVIN_ORG_ID/sessio
 
 Retries 2 · Devin wait 180 min · job limit 330 min · environment name `pipeline` · branch names `pipeline/<UTC timestamp>` · nothing merges automatically.
 
+## Metrics
+
+```bash
+python3 metrics/summarize.py          # success rate, median time, retries, test pass rate, average cost
+```
+Records: `metrics/runs/` on merged runs, and the `pipeline-metrics-*` artifact of every run. Details: `metrics/README.md`.
+
 ## Terminal shortcuts (GitHub CLI)
 
 ```bash

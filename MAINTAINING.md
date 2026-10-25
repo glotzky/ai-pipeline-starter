@@ -16,8 +16,15 @@ license text must stay exactly as is.
 | `CHANGELOG.md` | What changed per release | Every release | New dated section on top; semantic version; then `git tag` |
 | `MAINTAINING.md` | This file | You add or remove a top-level file | Add a row to the table |
 | `docs/` | The guides | Behavior or advice changes | Edit the numbered file; update README map and CHANGELOG |
+| `tests/` | Tests for the kit itself (not installed into projects) | You change `run.py`, `run_metrics.py`, the schema or `summarize.py` | Add or update a test in the same change; run the suite |
 | `template/` | What gets copied into projects | You improve a workflow, agent or script | Follow "Changing the template" below |
 | `install/` | Installers and setup scripts | The template gains files that need special handling | Test with a scratch repo (below) |
+
+## Tests
+```bash
+python3 -m unittest discover -s tests        # 50 tests, about 20 seconds, standard library only
+```
+They cover the metrics recorder and schema, the summary script, and the real `pipeline/run.py` run end to end against a fake `claude`, `gh` and Devin in a scratch git repository. Run them after any change to `template/pipeline/`, `template/metrics/` or the schema.
 
 ## Changing the template (the part that matters most)
 
@@ -52,9 +59,9 @@ PY
 
 ## Personal-data check (run before every push)
 ```bash
-grep -rniE "cog_[A-Za-z0-9]{10,}|sk-ant-[A-Za-z0-9_-]{10,}|ghp_[A-Za-z0-9]{20,}|github_pat_|/Users/|@gmail\.com" . -I | grep -v "^./.git/"
+grep -rniE "cog_[A-Za-z0-9]{10,}|sk-ant-[A-Za-z0-9_-]{10,}|ghp_[A-Za-z0-9]{20,}|github_pat_|/Users/|@gmail\.com" . -I --exclude-dir=.git --exclude=MAINTAINING.md
 ```
-It should print nothing. Never commit keys, IDs, or the names of your own private projects.
+It should print nothing except the pattern names mentioned in `template/metrics/README.md` and `template/pipeline/run_metrics.py`. Never commit keys, IDs, or the names of your own private projects.
 
 ## Releasing
 ```bash

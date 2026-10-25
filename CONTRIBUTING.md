@@ -20,6 +20,7 @@ Issues and pull requests are welcome. This kit is maintained on a best-effort ba
 
 ## Checks before opening a pull request
 ```bash
+python3 -m unittest discover -s tests
 python3 -m py_compile template/pipeline/run.py template/pipeline/project_plan.py
 bash -n install/install.sh install/set-secrets.sh install/harden-repo.sh
 python3 -c "import yaml,glob;[yaml.safe_load(open(f)) for f in glob.glob('template/.github/**/*.yml', recursive=True)]"
