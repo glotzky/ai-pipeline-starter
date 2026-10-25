@@ -165,6 +165,18 @@ class PipelineMetricsTests(unittest.TestCase):
         d = self.sb.record()["devin"]
         self.assertEqual((d["sessions"], d["sessions_with_acus"]), (1, 0))
         self.assertIsNone(d["acus_consumed"])
+    def test_missing_acus_are_never_shown_as_zero_in_the_summary_text(self):
+        self.sb.run(IDEA, devin=self.sb.devin(acus=None))
+        body = (self.sb.project / ".pipeline" / "pr-body.md").read_text()
+        self.assertIn("ACUs not reported", body)
+        self.assertNotIn("None ACUs", body)
+        self.assertNotIn("0.0 ACUs", body)
+
+    def test_reported_acus_are_shown_in_the_summary_text(self):
+        self.sb.run(IDEA, devin=self.sb.devin(acus=2.5))
+        body = (self.sb.project / ".pipeline" / "pr-body.md").read_text()
+        self.assertIn("(2.5 ACUs)", body)
+        self.assertIn("2.5 ACUs (full record", body)
 
     def test_fix_run_writes_its_own_record_and_updates_the_pr(self):
         self.sb.run(IDEA)

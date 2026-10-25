@@ -1,5 +1,7 @@
 """Shared test helpers. Standard library only (plus `requests`, which run.py imports; stubbed if missing)."""
+import contextlib
 import importlib.util
+import io
 import json
 import os
 import shutil
@@ -159,7 +161,8 @@ class Sandbox:
             mod.install_deps = lambda: None
             sys.argv = ["run.py", *args]
             try:
-                mod.main()
+                with contextlib.redirect_stdout(io.StringIO()):  # keep test output quiet
+                    mod.main()
                 return 0, None
             except SystemExit as e:
                 return (e.code or 0), None

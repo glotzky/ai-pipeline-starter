@@ -15,7 +15,8 @@ How:
 - Per-run metrics: `metrics/` (schema, README, `summarize.py`) and `pipeline/run_metrics.py`, wired into `run.py`. Records stage timings, retries, tests, verdict, PR, Devin ACUs, Claude tokens and CLI-reported cost; saved on the run branch and as an Actions artifact; incomplete runs are recorded honestly; no secrets or free text.
 - Claude stages now call `claude -p --output-format json` to get usage; output that is not that JSON is used as before.
 - A fix run writes `<run_id>-fix.json`. The `.pipeline/metrics.json` file added earlier is replaced by `metrics/runs/`.
-- Added `tests/` (50 tests). Not yet run in GitHub Actions.
+- Added `tests/` (52 tests, passing on Linux and macOS). Not yet run in GitHub Actions.
+- The PR and issue summary now says "ACUs not reported" instead of showing "None" or a made-up 0.0 when Devin reports no ACUs.
 
 ## 1.0.0 (2026-10-25)
 First release.

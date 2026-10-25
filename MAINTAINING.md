@@ -22,7 +22,7 @@ license text must stay exactly as is.
 
 ## Tests
 ```bash
-python3 -m unittest discover -s tests        # 50 tests, about 20 seconds, standard library only
+python3 -m unittest discover -s tests        # 52 tests, about 20 seconds, standard library only
 ```
 They cover the metrics recorder and schema, the summary script, and the real `pipeline/run.py` run end to end against a fake `claude`, `gh` and Devin in a scratch git repository. Run them after any change to `template/pipeline/`, `template/metrics/` or the schema.
 

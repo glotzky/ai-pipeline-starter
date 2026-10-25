@@ -272,22 +272,19 @@ def main():
 
         feedback = ("Human feedback on the pull request. Apply it, keep every existing test passing, "
                     "and add tests for any behavior you change:\n" + a.idea) if fix else None
-        verdict, result, devin_urls, acu_sum = "UNKNOWN", "UNKNOWN", [], 0.0
+        verdict, result, devin_urls = "UNKNOWN", "UNKNOWN", []
         for attempt in range(a.max_retries + 1):
             print(f"\n##### Developer attempt {attempt + 1} #####", flush=True)
             with REC.stage("developer", attempt + 1):
                 url, status, acus = devin_run(devin_prompt(branch, feedback), a.devin_timeout)
             REC.developer_attempt(acus)
-            devin_urls.append(f"{url} ({acus} ACUs)")
-            try:
-                acu_sum += float(acus or 0)
-            except (TypeError, ValueError):
-                pass
+            acu_text = f"{acus} ACUs" if isinstance(acus, (int, float)) and not isinstance(acus, bool) else "ACUs not reported"
+            devin_urls.append(f"{url} ({acu_text})")
             before = sh("git", "rev-parse", "HEAD")
             sh("git", "pull", "--ff-only", "origin", branch)
             if sh("git", "rev-parse", "HEAD") == before:
                 stop("dev", f"**Devin finished ({status}) but pushed no commits.** Open the session to see why (often: Devin cannot access the repo). Session: {url}", code=1, reason="devin_no_commits")
-            if reached("dev"): stop("dev", f"Stopped after dev. Devin session: {url} ({acus} ACUs)")
+            if reached("dev"): stop("dev", f"Stopped after dev. Devin session: {url} ({acu_text})")
             with REC.stage("install", attempt + 1):
                 install_deps()
 
@@ -322,9 +319,11 @@ def main():
             break
 
         minutes = (time.time() - started) / 60
+        total_acus = REC.data["devin"]["acus_consumed"]  # None when Devin reported no ACUs: never shown as 0
+        total_acu_text = f"{total_acus:g} ACUs" if total_acus is not None else "ACUs not reported"
         summary += [f"Tests: **{result}**", f"Verdict: **{verdict}**",
                     "Devin sessions: " + ", ".join(devin_urls),
-                    f"Metrics: {minutes:.0f} min, {len(devin_urls)} Devin attempt(s), {acu_sum:.1f} ACUs "
+                    f"Metrics: {minutes:.0f} min, {len(devin_urls)} Devin attempt(s), {total_acu_text} "
                     f"(full record: metrics/runs/{run_id}{"-fix" if fix else ""}.json)"]
         body = "\n".join(summary) + "\n\n---\n\n" + read("review.md")
         (PIPE / "pr-body.md").write_text(body)

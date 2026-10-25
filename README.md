@@ -86,7 +86,7 @@ This kit was built interactively and tested in stages. Be clear about what is pr
 | CI workflow, `/fix`, `/status`, `/stop`, `/queue`, `[project]` planner and queue, `[bug]` form, one-run-at-a-time, `metrics.json` | Written. `run.py` fix mode, metrics and CI dispatch tested with stubs in a scratch repo; `project_plan.py` parsing tested; **workflows not yet run in Actions** |
 | `harden-repo.sh` / `.ps1`, `CODEOWNERS`, `dependabot.yml`, PR template | Written, `install.sh` tested (owner fill-in, keep-existing); **hardening scripts never run against live GitHub**; PowerShell scripts untested |
 | Unit-test enforcement (planner, Devin, tester, reviewer prompts plus an orchestrator gate) | Gate tested in a scratch repo; **not yet run in Actions** |
-| Run metrics (`metrics/`, `pipeline/run_metrics.py`): per-run JSON record, schema, summary script, artifact upload | 50 tests pass locally (recorder, schema, summarizer, and the real `run.py` against fake Claude, `gh` and Devin); Claude CLI JSON usage format checked against a real call; **not yet run in Actions** |
+| Run metrics (`metrics/`, `pipeline/run_metrics.py`): per-run JSON record, schema, summary script, artifact upload | 52 tests pass locally (recorder, schema, summarizer, and the real `run.py` against fake Claude, `gh` and Devin); Claude CLI JSON usage format checked against a real call; **not yet run in Actions** |
 | Clean `.pipeline/` at run start, stop reason in the issue comment, loud failure when Devin pushes nothing | Written, tested in a scratch repo, **not yet run in Actions** |
 | `install_deps()` step, `install.ps1`, `set-secrets.sh/.ps1` | Written, **not tested** |
 
