@@ -53,7 +53,7 @@ class InstallerTests(unittest.TestCase):
             for folder in ("pipeline", "metrics"):
                 cache = REPO / "template" / folder / "__pycache__"
                 try:
-                    cache.rmdir()
+                    cache.rmdir()  # only if empty; leftovers from older runs are not ours to delete
                 except OSError:
                     pass
 
@@ -90,13 +90,18 @@ class InstallerTests(unittest.TestCase):
         self.assertEqual(lines.count("__pycache__/"), 1)
 
     def test_first_install_over_an_older_install_without_a_manifest_completes(self):
+        # Regression: a repo installed by v1.0/1.1 has pipeline files but no .pipeline-version.
         d = make_repo()
         (d / "pipeline").mkdir()
         (d / "pipeline" / "run.py").write_text("# older run.py\n")
+        (d / ".github" / "workflows").mkdir(parents=True)
+        (d / ".github" / "workflows" / "ci.yml").write_text("name: CI\n")
         r = install(d, "--env", "fire_check_env")
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         self.assertIn("Next steps", r.stdout)
+        self.assertNotEqual((d / "pipeline" / "run.py").read_text(), "# older run.py\n")
         self.assertTrue((d / ".pipeline-version").exists())
+        self.assertIn("env=fire_check_env", (d / ".pipeline-version").read_text())
 
     def test_action_versions_the_project_already_uses_are_kept(self):
         d = make_repo()
@@ -107,7 +112,7 @@ class InstallerTests(unittest.TestCase):
         self.assertIn("actions/checkout@v7", text)
         self.assertIn("actions/setup-node@v7", text)
         self.assertNotIn("actions/checkout@v4", text)
-        self.assertIn("run:", text)
+        self.assertIn("run:", text)  # the rest of the file is the new template
 
     def test_refuses_a_folder_that_is_not_a_git_repo(self):
         d = Path(tempfile.mkdtemp())
@@ -230,7 +235,7 @@ class SelfUpdateTests(unittest.TestCase):
 
     def update(self, *args, **env):
         e = dict(os.environ, PIPELINE_TARBALL=str(self.tgz), **env)
-        return subprocess.run(["bash", str(self.repo / "pipeline" / "update.sh"), *args], capture_output=True, text=True, cwd=self.repo, env=e)
+        return subprocess.run(["bash", str(self.repo / "pipeline" / "update.sh"), "--local", *args], capture_output=True, text=True, cwd=self.repo, env=e)
 
     def test_a_dependabot_version_bump_is_not_treated_as_your_edit(self):
         wf = self.repo / ".github" / "workflows" / "ci.yml"
@@ -279,6 +284,157 @@ class SelfUpdateTests(unittest.TestCase):
         self.assertNotEqual(r.returncode, 0)
         self.assertIn("install/install.sh", r.stdout + r.stderr)
         self.assertEqual((self.repo / "pipeline" / "run.py").read_text() != "# from 1.2.0\n", True)
+
+
+
+def git(repo, *args):
+    return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True)
+
+
+def tar_of(folder):
+    out = Path(tempfile.mkdtemp()) / "s.tar.gz"
+    subprocess.run(["tar", "-czf", str(out), "-C", str(folder.parent), folder.name], check=True)
+    return out
+
+
+FAKE_GH = """#!/usr/bin/env bash
+echo "gh $*" >> "$GH_LOG"
+prev=""
+for a in "$@"; do
+  if [ "$prev" = "--body-file" ]; then echo "--- body ---" >> "$GH_LOG"; cat "$a" >> "$GH_LOG"; echo "--- end ---" >> "$GH_LOG"; fi
+  prev="$a"
+done
+case "$1 $2" in "pr create") echo "https://github.com/someone/project/pull/1" ;; esac
+"""
+
+
+class UpdateBase:
+    """Shared fixture: a project with a real (local, bare) origin, a fake `gh`, and a newer starter tarball."""
+
+    def setUp(self):
+        self.starter = make_starter("1.0.0")
+        self.bare = Path(tempfile.mkdtemp(prefix="origin-")) / "o.git"
+        subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(self.bare)], check=True)
+        self.repo = make_repo()
+        git(self.repo, "config", "user.email", "a@b.c"); git(self.repo, "config", "user.name", "t")
+        git(self.repo, "remote", "add", "origin", str(self.bare))
+        self.assertEqual(run_install(self.starter, self.repo, "--env", "my_env").returncode, 0)
+        git(self.repo, "add", "-A"); git(self.repo, "commit", "-q", "-m", "install")
+        git(self.repo, "push", "-q", "-u", "origin", "main")
+        self.newer = make_starter("1.2.0")
+        (self.newer / "template" / "pipeline" / "run.py").write_text("# from 1.2.0\n")
+        self.tgz = tar_of(self.newer)
+        self.bin = Path(tempfile.mkdtemp(prefix="fakebin-"))
+        (self.bin / "gh").write_text(FAKE_GH); (self.bin / "gh").chmod(0o755)
+        self.log = self.bin / "gh.log"; self.log.write_text("")
+
+    def update(self, *args, tarball=None, latest="1.2.0"):
+        env = dict(os.environ, PIPELINE_TARBALL=str(tarball or self.tgz), GH_LOG=str(self.log),
+                   PATH=f"{self.bin}:{os.environ['PATH']}")
+        if latest:
+            env["PIPELINE_LATEST"] = latest
+        return subprocess.run(["bash", str(self.repo / "pipeline" / "update.sh"), *args],
+                              capture_output=True, text=True, cwd=self.repo, env=env)
+
+
+class PullRequestUpdateTests(UpdateBase, unittest.TestCase):
+    """The default `bash pipeline/update.sh`: branch, commit, push, open a PR, never merge."""
+
+    def test_it_opens_a_pull_request_from_a_new_branch_and_never_merges(self):
+        before = git(self.repo, "rev-parse", "main").stdout
+        r = self.update()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        log = self.log.read_text()
+        self.assertIn("gh pr create --base main --head pipeline-update/v1.2.0", log)
+        self.assertNotIn("gh pr merge", log)
+        self.assertNotIn("--auto", log)
+        self.assertIn("pipeline-update/v1.2.0", git(self.bare, "branch", "--list").stdout)
+        self.assertEqual(git(self.repo, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip(), "main")
+        self.assertEqual(git(self.repo, "rev-parse", "main").stdout, before)
+        self.assertNotEqual((self.repo / "pipeline" / "run.py").read_text(), "# from 1.2.0\n")
+        self.assertEqual(git(self.bare, "show", "pipeline-update/v1.2.0:pipeline/run.py").stdout, "# from 1.2.0\n")
+
+    def test_the_commit_and_pr_describe_the_update(self):
+        self.update()
+        msg = git(self.bare, "log", "-1", "--format=%s", "pipeline-update/v1.2.0").stdout.strip()
+        self.assertEqual(msg, "Update AI pipeline to v1.2.0")
+        self.assertIn("from **1.0.0** to **1.2.0**", self.log.read_text())
+        self.assertIn("updated        ./pipeline/run.py".replace("./", ""), self.log.read_text().replace("./", ""))
+
+    def test_pipeline_new_copies_stay_out_of_the_pr_but_are_listed_in_it(self):
+        (self.repo / "pipeline" / "run.py").write_text("# MINE\n")
+        git(self.repo, "commit", "-q", "-am", "my edit")
+        r = self.update()
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        files = git(self.bare, "ls-tree", "-r", "--name-only", "pipeline-update/v1.2.0").stdout
+        self.assertNotIn(".pipeline-new", files)
+        self.assertIn("pipeline/run.py.pipeline-new", self.log.read_text())
+        self.assertEqual(git(self.bare, "show", "pipeline-update/v1.2.0:pipeline/run.py").stdout, "# MINE\n")
+
+    def test_it_refuses_to_start_with_uncommitted_changes(self):
+        (self.repo / "pipeline" / "run.py").write_text("# unsaved work\n")
+        r = self.update()
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("uncommitted changes", r.stdout)
+        self.assertNotIn("pipeline-update", git(self.bare, "branch", "--list").stdout)
+        self.assertEqual((self.repo / "pipeline" / "run.py").read_text(), "# unsaved work\n")
+
+    def test_when_nothing_changes_no_branch_or_pr_is_made(self):
+        r = self.update("v1.0.0", tarball=tar_of(self.starter), latest=None)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("Nothing to change", r.stdout)
+        self.assertEqual(git(self.repo, "branch", "--list", "pipeline-update/*").stdout.strip(), "")
+        self.assertEqual(self.log.read_text(), "")
+
+    def test_it_refuses_if_the_update_branch_already_exists(self):
+        self.assertEqual(self.update().returncode, 0)
+        r = self.update()
+        self.assertNotEqual(r.returncode, 0)
+        self.assertIn("already exists", r.stdout)
+
+    def test_a_failed_upgrade_leaves_you_on_your_branch_with_nothing_committed(self):
+        bad = Path(tempfile.mkdtemp()) / "bad.tar.gz"
+        d = Path(tempfile.mkdtemp()); (d / "x").mkdir(); (d / "x" / "f").write_text("1")
+        subprocess.run(["tar", "-czf", str(bad), "-C", str(d), "x"], check=True)
+        r = self.update(tarball=bad)
+        self.assertNotEqual(r.returncode, 0)
+        self.assertEqual(git(self.repo, "rev-parse", "--abbrev-ref", "HEAD").stdout.strip(), "main")
+        self.assertEqual(git(self.repo, "branch", "--list", "pipeline-update/*").stdout.strip(), "")
+
+
+class SyncCheckTests(UpdateBase, unittest.TestCase):
+    """`--check`: change nothing, report whether the project matches the starter."""
+
+    def test_check_reports_in_sync_when_versions_and_files_match(self):
+        r = self.update("--check", "v1.0.0", tarball=tar_of(self.starter), latest=None)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("In sync with the starter (v1.0.0)", r.stdout)
+
+    def test_check_reports_what_is_out_of_date_and_exits_nonzero(self):
+        r = self.update("--check")
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("this project has 1.0.0, the starter has 1.2.0", r.stdout)
+        self.assertIn("pipeline/run.py", r.stdout)
+
+    def test_gitignore_is_only_reported_when_lines_were_really_added(self):
+        r = self.update("--check", "v1.0.0", tarball=tar_of(self.starter), latest=None)
+        self.assertNotIn(".gitignore", r.stdout)
+
+    def test_check_changes_nothing(self):
+        head = git(self.repo, "rev-parse", "HEAD").stdout
+        self.update("--check")
+        self.assertEqual(git(self.repo, "rev-parse", "HEAD").stdout, head)
+        self.assertEqual(git(self.repo, "status", "--porcelain").stdout, "")
+        self.assertEqual(git(self.repo, "branch", "--list", "pipeline-update/*").stdout.strip(), "")
+        self.assertEqual(self.log.read_text(), "")
+
+    def test_check_flags_a_file_you_edited(self):
+        (self.repo / "pipeline" / "run.py").write_text("# MINE\n")
+        git(self.repo, "commit", "-q", "-am", "edit")
+        r = self.update("--check", "v1.0.0", tarball=tar_of(self.starter), latest=None)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("you edited", r.stdout)
+
 
 
 if __name__ == "__main__":

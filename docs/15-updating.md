@@ -1,55 +1,72 @@
 # Updating your projects when the pipeline improves
 
-**Author:** Gil Lotzky · Applies to: every project that was installed with `install/install.sh` (macOS, Linux, WSL, Git Bash).
+**Author:** Gil Lotzky · Applies to every project installed with `install/install.sh` (macOS, Linux, WSL, Git Bash).
 
-You improve the starter once; each project pulls the update when you choose. Nothing updates itself, so a change to the starter can never break a project you did not touch.
+You improve the starter once and tag a version. Each project then pulls that version **as a pull request**, which you read and merge yourself. Nothing updates on its own, so a change to the starter can never break a project you did not touch.
 
-## How it works
+## The one command
 
-- The installer writes `.pipeline-version` into each project (commit it). It records the starter version, your GitHub environment name, where the starter lives, and a fingerprint of every file it installed.
-- `install.sh --upgrade` compares each file with that record:
+Run inside the project, from a clean checkout (no uncommitted changes):
 
-| Situation | What the upgrade does |
+```
+bash pipeline/update.sh
+```
+
+It does this, in order:
+
+1. Finds the newest version tag of the starter (from `.pipeline-version`, which records where the project came from). If you are already on it, it says so and stops.
+2. Downloads that version into a temporary folder.
+3. Creates the branch `pipeline-update/vX.Y.Z`, applies the update, commits it, pushes it, and opens a pull request into your default branch.
+4. Returns you to the branch you started on. **It never merges.**
+
+Then you open the PR, read the diff, merge it, and run **Actions → Health check**. Workflows only run from the default branch, so nothing takes effect until you merge.
+
+Variants:
+
+| Command | What it does |
 |---|---|
-| File is new in the starter | Adds it |
-| You never edited the file | Replaces it with the new version (your environment name is kept) |
-| You edited the file | Leaves yours, writes the new version beside it as `<file>.pipeline-new` |
-| `CLAUDE.md`, `PIPELINE.md`, `CODEOWNERS`, `dependabot.yml`, PR template, `.gitattributes` | Always yours; the new version arrives as `.pipeline-new` only if it differs |
-| File was removed from the starter | Reports it; never deletes anything |
+| `bash pipeline/update.sh v1.2.0` | The same, for a specific version |
+| `bash pipeline/update.sh --check` | Changes nothing; says whether the project matches the starter; exit code 1 if not |
+| `bash pipeline/update.sh --local` | Applies to your working folder only: no branch, no commit, no PR |
 
-## The one-command way (no clone of the starter needed)
+Needs `git`, `curl`, `tar` and the GitHub CLI `gh` (logged in with `gh auth login`). Without `gh` it still pushes the branch and tells you to open the PR on GitHub.
 
-Inside the project, on a new branch:
+## What the update changes
+
+| Situation | What happens |
+|---|---|
+| File is new in the starter | Added |
+| You never edited the file | Replaced with the new version. Your GitHub environment name and the GitHub Action versions you already use (for example Dependabot bumps) are kept |
+| You edited the file | Yours is kept. The new version is saved next to it as `<file>.pipeline-new` on the machine that ran the update; these copies are **not** in the PR, and the PR lists them so you can merge by hand and delete them |
+| `CLAUDE.md`, `PIPELINE.md`, `CODEOWNERS`, `dependabot.yml`, PR template, `.gitattributes` | Always yours; a `.pipeline-new` copy appears only if the starter's version differs |
+| File was removed from the starter | Listed in the PR; never deleted |
+
+## Confirm a project is in sync with the starter
 
 ```
-git checkout main && git pull && git checkout -b pipeline-upgrade
-bash pipeline/update.sh            # newest tagged version; or: bash pipeline/update.sh v1.2.0
+bash pipeline/update.sh --check
 ```
 
-It reads the starter's GitHub address from `.pipeline-version`, downloads that tagged version to a temporary folder and runs its installer with `--upgrade`. Nothing is committed. Only point it at a starter repository you trust, because it runs that repository's installer.
-
-## Do an update from a local clone (about 5 minutes)
-
-1. **In the starter** (once): bump `VERSION`, add a `CHANGELOG.md` entry, run `python3 -m unittest discover -s tests`, commit, push, then tag: `git tag v1.2.0 && git push --tags`.
-2. **In each project:**
-   ```
-   cd ~/code/ai-pipeline-starter && git pull
-   cd /path/to/project && git checkout main && git pull && git checkout -b pipeline-upgrade
-   ~/code/ai-pipeline-starter/install/install.sh /path/to/project --upgrade
-   ```
-3. For every `*.pipeline-new` file listed: compare, copy over what you want, delete the `.pipeline-new` file. (A file you edited stays flagged until your copy matches the new one.)
-4. Commit, push, open a PR, merge, then run Actions -> Health check.
+It compares what is **committed** on your current branch with the newest tagged starter and prints either `In sync with the starter (vX.Y.Z)` or the differences: a different version, files that would be updated or added, and files you edited. Use it after merging an update PR. Customised files (for example `CLAUDE.md`) are yours and are not counted.
 
 ## Be told when an update exists
 
-The **Update check** workflow runs every Monday, compares your `.pipeline-version` with the newest tag in the starter repository, and opens one issue ("Pipeline update available: x.y.z") when there is a newer one. It changes no files. It needs the starter repo to be public and to have version tags.
+The **Update check** workflow runs every Monday, compares `.pipeline-version` with the newest tag in the starter, and opens one issue ("Pipeline update available: x.y.z") if there is a newer one. It changes no files. It needs the starter repository to be public and to have version tags.
 
-## First time for a project installed before this feature
+## Publish an update (maintainer steps)
 
-Run the normal install once (no `--upgrade`): `install.sh /path/to/project --env YOUR_ENV_NAME`. Files you never changed are rewritten with identical content; your own `CLAUDE.md` etc. are kept. After that, use `--upgrade`.
+1. In the starter: change what you need, bump `VERSION`, add a `CHANGELOG.md` entry, run `python3 -m unittest discover -s tests` (must end `OK`), commit and push.
+2. Tag it: `git tag v1.3.0 && git push --tags`. Projects only see tagged versions, not `main`.
+3. In each project: `bash pipeline/update.sh`, merge the PR, run Health check, then `bash pipeline/update.sh --check`.
+
+## Projects that do not have `pipeline/update.sh` yet
+
+- **Installed before v1.1.0** (no `.pipeline-version`): clone the starter and run `./install/install.sh /path/to/project --env YOUR_ENV_NAME` once, on a new branch, then commit and open a PR by hand.
+- **Has the v1.1.x script** (applies locally only): run `bash pipeline/update.sh` on a new branch named `pipeline-update/vX.Y.Z`, then commit, push and open the PR by hand. After that merge the project has the PR-opening version.
 
 ## Limits
 
-- `--upgrade` is bash only. On Windows use Git Bash or WSL (the normal PowerShell installer still works for first installs).
-- A fork of the starter updates from the fork's tags.
-- Projects that copy the starter by hand (no installer) have no record, so they need the one-time install above.
+- Bash only (Git Bash or WSL on Windows). The PowerShell installer does first installs only.
+- A fork of the starter updates from the fork's tags. Only point a project at a starter repository you trust: the update runs that repository's installer.
+- `--check` looks at committed files, so commit or merge before running it.
+- Tested with stubs and a local bare repository for the branch, push and PR steps; run against real GitHub once so far: the download from a tag. See the verification table in the README.

@@ -87,3 +87,7 @@ gh issue view <n> --comments | tail -30              # the bot's report on an is
 gh pr list --draft                                   # draft PRs waiting for you
 gh pr ready <n> && gh pr merge <n> --merge --delete-branch
 ```
+
+## Update the pipeline in a project
+
+`bash pipeline/update.sh` opens a pull request with the newest tagged version (never merges). `--check` shows whether the project matches the starter. Details: [docs/15-updating.md](15-updating.md).

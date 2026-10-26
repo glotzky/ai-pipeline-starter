@@ -2,7 +2,7 @@ name: Update check
 
 # Once a week, look for a newer version of the pipeline starter this repository was installed from
 # and open ONE issue if there is one. It never changes any file. To apply an update, run on your computer
-# (inside this repository, on a new branch):   bash pipeline/update.sh
+# (inside this repository, from a clean checkout; it opens a pull request):   bash pipeline/update.sh
 # Your own edits are kept; changed files arrive as .pipeline-new copies for you to merge.
 on:
   schedule:
@@ -41,8 +41,8 @@ jobs:
 To update (your edits are kept; files you changed arrive as \`.pipeline-new\` copies to merge by hand):
 
 \`\`\`
-cd /path/to/this/repo && git checkout main && git pull && git checkout -b pipeline-upgrade
+cd /path/to/this/repo && git checkout main && git pull
 bash pipeline/update.sh
 \`\`\`
 
-Then commit on a branch, open a PR, merge it, and run Actions -> Health check. Nothing changes until you do this."
+That creates a branch, opens a pull request and never merges it. Read the PR, merge it, then run Actions -> Health check and \`bash pipeline/update.sh --check\`. Nothing changes until you do this."

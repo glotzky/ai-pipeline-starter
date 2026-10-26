@@ -135,13 +135,15 @@ echo "Summary: $n_new new, $n_upd updated, $n_same already current, $n_conf for 
 
 # Append missing lines to .gitignore (never removes anything).
 touch "$target/.gitignore"
+added_ignore=0
 while IFS= read -r line; do
   case "$line" in ''|'#'*) continue ;; esac
-  grep -qxF "$line" "$target/.gitignore" || echo "$line" >> "$target/.gitignore"
+  if ! grep -qxF "$line" "$target/.gitignore"; then echo "$line" >> "$target/.gitignore"; added_ignore=1; fi
 done < "$tpl/.gitignore.pipeline"
-echo "  updated        .gitignore (appended missing lines)"
+[ "$added_ignore" = 0 ] || echo "  updated        .gitignore (appended missing lines)"
 
 if [ "$upgrade" = 1 ]; then
+  [ -z "${PIPELINE_QUIET_NEXT:-}" ] || exit 0   # pipeline/update.sh prints its own next steps
   cat <<UP
 
 Upgrade done. Next steps:
