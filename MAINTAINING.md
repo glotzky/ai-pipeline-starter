@@ -22,7 +22,7 @@ license text must stay exactly as is.
 
 ## Tests
 ```bash
-python3 -m unittest discover -s tests        # 52 tests, about 20 seconds, standard library only
+python3 -m unittest discover -s tests        # 79 tests, about 20 seconds, standard library only
 ```
 They cover the metrics recorder and schema, the summary script, and the real `pipeline/run.py` run end to end against a fake `claude`, `gh` and Devin in a scratch git repository. Run them after any change to `template/pipeline/`, `template/metrics/` or the schema.
 
@@ -41,7 +41,7 @@ D=$(mktemp -d) && git init -q -b main "$D" && git -C "$D" commit -q --allow-empt
 bash install/install.sh "$D" && ls -a "$D" "$D/.github/workflows"
 ```
 4. If you changed a workflow or `run.py`, run it once in a scratch GitHub repo before telling anyone it works.
-5. Update `README.md` (verification table) and `CHANGELOG.md`, then tag a release.
+5. Update `README.md` (verification table), `CHANGELOG.md` and the `VERSION` file, then tag a release (`git tag vX.Y.Z && git push --tags`). Projects learn about it through their weekly Update check; see `docs/15-updating.md`.
 
 ## Link check (run before every commit that touches Markdown)
 ```bash

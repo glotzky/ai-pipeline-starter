@@ -1,0 +1,48 @@
+name: Update check
+
+# Once a week, look for a newer version of the pipeline starter this repository was installed from
+# and open ONE issue if there is one. It never changes any file. To apply an update, run on your computer
+# (inside this repository, on a new branch):   bash pipeline/update.sh
+# Your own edits are kept; changed files arrive as .pipeline-new copies for you to merge.
+on:
+  schedule:
+    - cron: "17 13 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compare versions
+        run: |
+          set -uo pipefail
+          if [ ! -f .pipeline-version ]; then echo "No .pipeline-version file; nothing to compare."; exit 0; fi
+          cur=$(sed -n 's/^version=//p' .pipeline-version | head -n1)
+          src=$(sed -n 's/^source=//p' .pipeline-version | head -n1)
+          case "$src" in */*) ;; *) echo "No source repo recorded."; exit 0 ;; esac
+          latest=$(gh api "repos/$src/tags" --jq '.[].name' 2>/dev/null | sed 's/^v//' | grep -E '^[0-9]+(\.[0-9]+)*$' | sort -V | tail -n1 || true)
+          if [ -z "$latest" ]; then echo "Could not read tags from $src (private, offline, or no tags yet)."; exit 0; fi
+          newest=$(printf '%s\n%s\n' "$cur" "$latest" | sort -V | tail -n1)
+          if [ "$newest" = "$cur" ]; then echo "Up to date ($cur)."; exit 0; fi
+          title="Pipeline update available: $latest"
+          gh label create pipeline-update --color 0e8a16 --description "Opened by Update check" 2>/dev/null || true
+          if [ -n "$(gh issue list --label pipeline-update --state open --search "in:title \"$title\"" --json number --jq '.[0].number // empty')" ]; then exit 0; fi
+          gh issue create --title "$title" --label pipeline-update --body "This repository has pipeline **$cur**; **$latest** is available from https://github.com/$src (see its CHANGELOG.md).
+
+To update (your edits are kept; files you changed arrive as \`.pipeline-new\` copies to merge by hand):
+
+\`\`\`
+cd /path/to/this/repo && git checkout main && git pull && git checkout -b pipeline-upgrade
+bash pipeline/update.sh
+\`\`\`
+
+Then commit on a branch, open a PR, merge it, and run Actions -> Health check. Nothing changes until you do this."

@@ -1,4 +1,8 @@
 """Shared test helpers. Standard library only (plus `requests`, which run.py imports; stubbed if missing)."""
+import sys
+
+sys.dont_write_bytecode = True  # never leave __pycache__ inside template/ (the installer copies that folder)
+
 import contextlib
 import importlib.util
 import io

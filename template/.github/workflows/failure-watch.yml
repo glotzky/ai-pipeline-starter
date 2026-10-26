@@ -1,0 +1,82 @@
+name: Failure watch
+
+# When one of the pipeline's helper workflows fails, file a "[bug]" issue that carries the run link and the
+# failing log lines, so you never have to describe the error yourself. Nothing is fixed until YOU reply
+# "/go" on that issue (the pipeline then writes a failing test, fixes it and opens a draft PR).
+# Optional: set the repository variable PIPELINE_AUTO_FIX=true to start the fix automatically for CI failures
+# (still a draft PR that you merge; at most 3 new failure issues per 24 hours).
+# This workflow deliberately has no "environment:" (it only needs the built-in token), and it does not watch
+# the "AI pipeline" workflow, which already reports its own failures on the issue.
+on:
+  workflow_run:
+    workflows: ["CI", "Queue", "Idea intake", "Commands", "Project plan"]
+    types: [completed]
+
+permissions:
+  contents: read
+  issues: write
+  actions: write
+
+jobs:
+  report:
+    if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      RUN_ID: ${{ github.event.workflow_run.id }}
+      RUN_URL: ${{ github.event.workflow_run.html_url }}
+      WF: ${{ github.event.workflow_run.name }}
+      BRANCH: ${{ github.event.workflow_run.head_branch }}
+      SHA: ${{ github.event.workflow_run.head_sha }}
+      AUTO: ${{ vars.PIPELINE_AUTO_FIX }}
+    steps:
+      - name: File or update the failure issue
+        run: |
+          set -uo pipefail
+          title="[bug] ${WF} failed on ${BRANCH}"
+          gh label create ci-failure --color d93f0b --description "Opened by Failure watch" 2>/dev/null || true
+
+          # Failing log lines, with anything that looks like a token masked and code fences defused.
+          gh run view "$RUN_ID" --log-failed 2>/dev/null | tail -n 60 \
+            | sed -E 's/(sk-ant-|cog_|ghp_|gho_|github_pat_|xox[bap]-)[A-Za-z0-9_-]+/\1***/g; s/```/'"'''"'/g' > /tmp/log.txt || true
+          [ -s /tmp/log.txt ] || echo "(no failed-step log was available; open the run link)" > /tmp/log.txt
+
+          {
+            echo "## What failed"
+            echo "Workflow **${WF}** failed on \`${BRANCH}\` (commit \`${SHA:0:7}\`)."
+            echo "Run: ${RUN_URL}"
+            echo
+            echo "## Failing log (last lines)"
+            echo '```'
+            cat /tmp/log.txt
+            echo '```'
+            echo
+            echo "## Steps to reproduce"
+            echo "Re-run the workflow, or push a change on \`${BRANCH}\` and watch the same job."
+            echo
+            echo "## Notes for the pipeline"
+            echo "- Check the cause against the log above before deciding there is nothing to change."
+            echo "- If the cause is a repository setting (not code), say so and name the setting."
+            echo "- Changes inside \`.github/\` need the owner's explicit approval. Ask rather than editing them silently."
+          } > /tmp/body.md
+
+          existing=$(gh issue list --label ci-failure --state open --search "in:title \"$title\"" --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "Failed again: ${RUN_URL}"
+            exit 0
+          fi
+
+          recent=$(gh issue list --label ci-failure --state all --limit 20 --json createdAt \
+            --jq "[.[] | select(.createdAt > (now - 86400 | todate))] | length")
+          url=$(gh issue create --title "$title" --label ci-failure --body-file /tmp/body.md)
+          n=${url##*/}
+          if [ "${AUTO:-}" = "true" ] && [ "$WF" = "CI" ] && [ "${recent:-0}" -lt 3 ]; then
+            gh label create running --color 1d76db --description "Pipeline is building this" 2>/dev/null || true
+            gh issue edit "$n" --add-label running
+            gh workflow run pipeline.yml -f idea="$(cat /tmp/body.md)" -f until=review -f issue="$n"
+            gh issue comment "$n" --body "PIPELINE_AUTO_FIX is on, so a fix run was started. It will open a draft PR for you to review."
+          else
+            gh issue comment "$n" --body "Reply \`/go\` here and the pipeline will investigate and open a draft PR with the fix."
+          fi

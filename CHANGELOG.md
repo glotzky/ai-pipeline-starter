@@ -15,7 +15,12 @@ How:
 - Per-run metrics: `metrics/` (schema, README, `summarize.py`) and `pipeline/run_metrics.py`, wired into `run.py`. Records stage timings, retries, tests, verdict, PR, Devin ACUs, Claude tokens and CLI-reported cost; saved on the run branch and as an Actions artifact; incomplete runs are recorded honestly; no secrets or free text.
 - Claude stages now call `claude -p --output-format json` to get usage; output that is not that JSON is used as before.
 - A fix run writes `<run_id>-fix.json`. The `.pipeline/metrics.json` file added earlier is replaced by `metrics/runs/`.
-- Added `tests/` (52 tests, passing on Linux and macOS). Not yet run in GitHub Actions.
+- Added `tests/` (79 tests, passing on Linux and macOS). Not yet run in GitHub Actions.
+- **Upgrades:** the installer writes `.pipeline-version`; `install.sh --upgrade` updates files you have not edited, writes `.pipeline-new` beside ones you have, and never touches `CLAUDE.md` etc. New weekly **Update check** workflow opens an issue when a newer tagged version exists. See `docs/15-updating.md`.
+- `pipeline/update.sh` in every project: `bash pipeline/update.sh` downloads the newest tagged starter from GitHub and runs the upgrade. Anyone who installed from your repository receives your updates this way, with their own edits kept.
+- **Failure watch:** new workflow that opens a `[bug]` issue (run link plus failing log lines) when CI, Queue, Intake, Commands or Project plan fails; you reply `/go` and the pipeline opens a draft PR. Optional `PIPELINE_AUTO_FIX=true` starts CI fixes automatically (max 3 per 24 h).
+- **Fixed:** `queue.yml` used `environment:` on a `pull_request` job, so an environment limited to `main` refused it (`Branch "refs/pull/N/merge" is not allowed to deploy`). A test now blocks `environment:` on any pull_request workflow.
+- The installer no longer copies `__pycache__`, `.pyc` or `.DS_Store` files; the tests no longer create them inside `template/`; added installer tests (79 tests in total).
 - The PR and issue summary now says "ACUs not reported" instead of showing "None" or a made-up 0.0 when Devin reports no ACUs.
 
 ## 1.0.0 (2026-10-25)

@@ -53,6 +53,7 @@ Created by Gil Lotzky. Licensed under the [MIT License](LICENSE).
 12. [Gap analysis](docs/12-gap-analysis.md): what a strong engineering team does that this does not yet, ranked
 13. [Engineering practices](docs/13-engineering-practices.md): how each team practice is covered, where it lives and its verification status
 14. [Optional: Vercel](docs/14-optional-vercel.md): previews and hosting, adopt later, not part of the pipeline
+15. [Updating your projects](docs/15-updating.md): pull starter improvements into every project without losing your edits
 15. [Tools used](docs/tools.md) and [Cheat sheet](docs/cheatsheet.md)
 
 ## Quick start (about 45 minutes, most of it account setup)
@@ -86,7 +87,7 @@ This kit was built interactively and tested in stages. Be clear about what is pr
 | CI workflow, `/fix`, `/status`, `/stop`, `/queue`, `[project]` planner and queue, `[bug]` form, one-run-at-a-time, `metrics.json` | Written. `run.py` fix mode, metrics and CI dispatch tested with stubs in a scratch repo; `project_plan.py` parsing tested; **workflows not yet run in Actions** |
 | `harden-repo.sh` / `.ps1`, `CODEOWNERS`, `dependabot.yml`, PR template | Written, `install.sh` tested (owner fill-in, keep-existing); **hardening scripts never run against live GitHub**; PowerShell scripts untested |
 | Unit-test enforcement (planner, Devin, tester, reviewer prompts plus an orchestrator gate) | Gate tested in a scratch repo; **not yet run in Actions** |
-| Run metrics (`metrics/`, `pipeline/run_metrics.py`): per-run JSON record, schema, summary script, artifact upload | 52 tests pass locally (recorder, schema, summarizer, and the real `run.py` against fake Claude, `gh` and Devin); Claude CLI JSON usage format checked against a real call; **not yet run in Actions** |
+| Run metrics (`metrics/`, `pipeline/run_metrics.py`): per-run JSON record, schema, summary script, artifact upload | 79 tests pass locally (recorder, schema, summarizer, and the real `run.py` against fake Claude, `gh` and Devin); Claude CLI JSON usage format checked against a real call; **not yet run in Actions** |
 | Clean `.pipeline/` at run start, stop reason in the issue comment, loud failure when Devin pushes nothing | Written, tested in a scratch repo, **not yet run in Actions** |
 | `install_deps()` step, `install.ps1`, `set-secrets.sh/.ps1` | Written, **not tested** |
 

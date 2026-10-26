@@ -86,3 +86,11 @@ git revert -m 1 <older-merge-hash>                 # squash-merged? drop "-m 1"
 git push -u origin revert-pipeline-merges
 ```
 Open the PR from the printed link (or `gh pr create --fill --base main`) and merge it. Then delete stale branches (`git push origin --delete pipeline/<timestamp>`) and re-run the idea. Runs now clear `.pipeline/` at the start, so leftover handoff files no longer leak into new runs.
+
+## "Branch \"refs/pull/N/merge\" is not allowed to deploy to <environment>"
+
+A job that runs on a pull request tried to use the GitHub environment, which only allows `main`. Pipeline workflows triggered by `pull_request` must not set `environment:` (v1.1 removes it from `queue.yml`; the tests block it coming back). Fix on an older install: delete the `environment:` line from that workflow, or run `install.sh --upgrade`. Do **not** widen the environment's branch rule to `refs/pull/*`; that exposes the secrets to pull-request code.
+
+## A workflow failed and I do not want to describe it
+
+The **Failure watch** workflow opens a `[bug]` issue with the run link and the failing log lines when CI, Queue, Idea intake, Commands or Project plan fails. Reply `/go` on that issue to have the pipeline investigate and open a draft PR. Set the repository variable `PIPELINE_AUTO_FIX=true` to start CI fixes without replying (still a draft PR; max 3 per 24 hours). Failures in `.github/` itself need your explicit approval, and the "AI pipeline" workflow reports its own failures on its issue.

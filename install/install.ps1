@@ -28,7 +28,7 @@ try {
   if ($remote -match "github\.com[:/]([^/]+)/") { $owner = $Matches[1] }
 } catch { }
 
-Get-ChildItem -Path $tpl -Recurse -File -Force | Where-Object { $_.Name -ne ".gitignore.pipeline" } | ForEach-Object {
+Get-ChildItem -Path $tpl -Recurse -File -Force | Where-Object { $_.Name -ne ".gitignore.pipeline" -and $_.Name -ne ".DS_Store" -and $_.Extension -ne ".pyc" -and $_.FullName -notmatch "__pycache__" } | ForEach-Object {
   $rel = $_.FullName.Substring($tpl.Length + 1)
   $dst = Join-Path $Target $rel
   New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dst) | Out-Null

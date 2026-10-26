@@ -18,7 +18,8 @@ jobs:
     if: ${{ github.event_name == 'workflow_dispatch' || (github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'pipeline/') && github.event.pull_request.merged_by.login == github.repository_owner) }}
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    environment: pipeline
+    # No "environment:" here: this job runs on pull_request, whose ref (refs/pull/N/merge) is not allowed to
+    # use an environment restricted to main. It only needs the built-in token.
     env:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GH_REPO: ${{ github.repository }}
