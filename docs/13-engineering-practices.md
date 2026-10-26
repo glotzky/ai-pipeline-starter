@@ -56,7 +56,7 @@ Deliberately **not automated**: the pipeline never deploys. Recommended setup, o
 Planner lists the docs to update; reviewer flags missing updates; the PR checklist asks for it. Keep `CLAUDE.md` current: it is the memory every agent reads.
 
 ## 10. Measurement and improvement
-- Each run writes a structured record to `metrics/runs/<run_id>.json` (stages and timings, retries, test result, verdict, PR, Devin ACUs, Claude tokens and reported cost), commits it to the run branch and uploads it as an artifact; `metrics/summarize.py` reports success rate, median time, retries, test pass rate and average cost. See `template/metrics/README.md`. Covered by 94 local tests; **not yet run in Actions**.
+- Each run writes a structured record to `metrics/runs/<run_id>.json` (stages and timings, retries, test result, verdict, PR, Devin ACUs, Claude tokens and reported cost), commits it to the run branch and uploads it as an artifact; `metrics/summarize.py` reports success rate, median time, retries, test pass rate and average cost. See `template/metrics/README.md`. Covered by 98 local tests; **not yet run in Actions**.
 - Once a month: read the metrics, note rework rate (how often retries or `/fix` were needed), cost per merged PR, and any bug that escaped to production. Turn recurring mistakes into rules in `CLAUDE.md`. **Your job.**
 
 ## 11. Process hygiene

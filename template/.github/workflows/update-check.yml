@@ -36,13 +36,18 @@ jobs:
           title="Pipeline update available: $latest"
           gh label create pipeline-update --color 0e8a16 --description "Opened by Update check" 2>/dev/null || true
           if [ -n "$(gh issue list --label pipeline-update --state open --search "in:title \"$title\"" --json number --jq '.[0].number // empty')" ]; then exit 0; fi
-          gh issue create --title "$title" --label pipeline-update --body "This repository has pipeline **$cur**; **$latest** is available from https://github.com/$src (see its CHANGELOG.md).
-
-To update (your edits are kept; files you changed arrive as \`.pipeline-new\` copies to merge by hand):
-
-\`\`\`
-cd /path/to/this/repo && git checkout main && git pull
-bash pipeline/update.sh
-\`\`\`
-
-That creates a branch, opens a pull request and never merges it. Read the PR, merge it, then run Actions -> Health check and \`bash pipeline/update.sh --check\`. Nothing changes until you do this."
+          {
+            echo "This repository has pipeline **$cur**; **$latest** is available from https://github.com/$src (see its CHANGELOG.md)."
+            echo
+            echo "To update, run this inside the repository, from a clean checkout:"
+            echo
+            echo '```'
+            echo "git checkout main && git pull"
+            echo "bash pipeline/update.sh"
+            echo '```'
+            echo
+            echo "It creates a branch, opens a pull request and never merges it. Files you edited are kept (the new versions are listed in the PR)."
+            echo "Read the PR, merge it, then run Actions -> Health check and: bash pipeline/update.sh --check"
+            echo "Nothing changes until you do this."
+          } > /tmp/body.md
+          gh issue create --title "$title" --label pipeline-update --body-file /tmp/body.md
