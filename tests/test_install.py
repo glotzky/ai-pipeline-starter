@@ -98,6 +98,17 @@ class InstallerTests(unittest.TestCase):
         self.assertIn("Next steps", r.stdout)
         self.assertTrue((d / ".pipeline-version").exists())
 
+    def test_action_versions_the_project_already_uses_are_kept(self):
+        d = make_repo()
+        (d / ".github" / "workflows").mkdir(parents=True)
+        (d / ".github" / "workflows" / "ci.yml").write_text("steps:\n  - uses: actions/checkout@v7\n  - uses: actions/setup-node@v7\n")
+        self.assertEqual(install(d).returncode, 0)
+        text = (d / ".github" / "workflows" / "ci.yml").read_text()
+        self.assertIn("actions/checkout@v7", text)
+        self.assertIn("actions/setup-node@v7", text)
+        self.assertNotIn("actions/checkout@v4", text)
+        self.assertIn("run:", text)
+
     def test_refuses_a_folder_that_is_not_a_git_repo(self):
         d = Path(tempfile.mkdtemp())
         self.assertNotEqual(install(d).returncode, 0)
@@ -220,6 +231,16 @@ class SelfUpdateTests(unittest.TestCase):
     def update(self, *args, **env):
         e = dict(os.environ, PIPELINE_TARBALL=str(self.tgz), **env)
         return subprocess.run(["bash", str(self.repo / "pipeline" / "update.sh"), *args], capture_output=True, text=True, cwd=self.repo, env=e)
+
+    def test_a_dependabot_version_bump_is_not_treated_as_your_edit(self):
+        wf = self.repo / ".github" / "workflows" / "ci.yml"
+        wf.write_text(wf.read_text().replace("actions/checkout@v4", "actions/checkout@v7"))
+        (self.starter / "VERSION").write_text("1.0.1\n")
+        r = run_install(self.starter, self.repo, "--upgrade")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertNotIn("you edited", r.stdout)
+        self.assertEqual(list(self.repo.rglob("*.pipeline-new")), [])
+        self.assertIn("actions/checkout@v7", wf.read_text())
 
     def test_update_script_is_installed_in_projects(self):
         self.assertTrue((self.repo / "pipeline" / "update.sh").exists())

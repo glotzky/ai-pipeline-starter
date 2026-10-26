@@ -66,9 +66,18 @@ new_manifest="$(mktemp)"; trap 'rm -f "$new_manifest"' EXIT
 tmp="$(mktemp)"; trap 'rm -f "$new_manifest" "$tmp"' EXIT
 n_new=0; n_upd=0; n_same=0; n_conf=0
 
+# Keep the action versions the project already uses (Dependabot bumps them; an upgrade must not undo that).
+keep_pins() { # keep_pins <existing file>   (edits $tmp in place)
+  [ -f "$1" ] || return 0
+  { grep -oE 'uses: [A-Za-z0-9_./-]+@[A-Za-z0-9._-]+' "$1" || true; } | sort -u | while IFS= read -r line; do
+    ref="${line#uses: }"; action="${ref%@*}"; ver="${ref#*@}"
+    sed -E "s#(uses: ${action})@[A-Za-z0-9._-]+#\1@${ver}#" "$tmp" > "$tmp.pin" && mv "$tmp.pin" "$tmp"
+  done
+}
+
 render() { # render <rel> -> $tmp (the file exactly as it would be installed)
   case "$1" in
-    *.yml) sed "s/environment: pipeline/environment: $envname/" "$tpl/$1" > "$tmp" ;;
+    *.yml) sed "s/environment: pipeline/environment: $envname/" "$tpl/$1" > "$tmp"; keep_pins "$target/$1" ;;
     ./.github/CODEOWNERS) if [ -n "$owner" ]; then sed "s/@OWNER/@$owner/g" "$tpl/$1" > "$tmp"; else cp "$tpl/$1" "$tmp"; fi ;;
     *) cp "$tpl/$1" "$tmp" ;;
   esac
