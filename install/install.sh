@@ -73,7 +73,7 @@ render() { # render <rel> -> $tmp (the file exactly as it would be installed)
     *) cp "$tpl/$1" "$tmp" ;;
   esac
 }
-recorded_hash() { awk -v p="$1" '$2==p {print $1}' "$manifest" 2>/dev/null | head -n1; }
+recorded_hash() { [ -f "$manifest" ] || return 0; awk -v p="$1" '$2==p {print $1}' "$manifest" | head -n1 || true; }
 
 files="$(cd "$tpl" && find . -type f ! -name '.gitignore.pipeline' ! -name '*.pyc' ! -path '*/__pycache__/*' ! -name '.DS_Store' | sort)"
 while IFS= read -r rel; do

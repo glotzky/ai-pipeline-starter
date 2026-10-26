@@ -52,8 +52,10 @@ class InstallerTests(unittest.TestCase):
                 j.unlink(missing_ok=True)
             for folder in ("pipeline", "metrics"):
                 cache = REPO / "template" / folder / "__pycache__"
-                if cache.exists():
+                try:
                     cache.rmdir()
+                except OSError:
+                    pass
 
     def test_environment_name_is_rewritten_in_every_workflow(self):
         d = make_repo()
@@ -86,6 +88,15 @@ class InstallerTests(unittest.TestCase):
         lines = (d / ".gitignore").read_text().splitlines()
         self.assertIn("my-own-rule", lines)
         self.assertEqual(lines.count("__pycache__/"), 1)
+
+    def test_first_install_over_an_older_install_without_a_manifest_completes(self):
+        d = make_repo()
+        (d / "pipeline").mkdir()
+        (d / "pipeline" / "run.py").write_text("# older run.py\n")
+        r = install(d, "--env", "fire_check_env")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("Next steps", r.stdout)
+        self.assertTrue((d / ".pipeline-version").exists())
 
     def test_refuses_a_folder_that_is_not_a_git_repo(self):
         d = Path(tempfile.mkdtemp())
