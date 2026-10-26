@@ -11,7 +11,7 @@ How:
 -->
 # Changelog
 
-## 1.1.0 (unreleased)
+## 1.1.0 (2026-10-26)
 - Per-run metrics: `metrics/` (schema, README, `summarize.py`) and `pipeline/run_metrics.py`, wired into `run.py`. Records stage timings, retries, tests, verdict, PR, Devin ACUs, Claude tokens and CLI-reported cost; saved on the run branch and as an Actions artifact; incomplete runs are recorded honestly; no secrets or free text.
 - Claude stages now call `claude -p --output-format json` to get usage; output that is not that JSON is used as before.
 - A fix run writes `<run_id>-fix.json`. The `.pipeline/metrics.json` file added earlier is replaced by `metrics/runs/`.
