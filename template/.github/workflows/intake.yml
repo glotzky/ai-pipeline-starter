@@ -42,7 +42,7 @@ jobs:
           elif [ "$EVENT" = "issue_comment" ] && printf '%s' "$first" | grep -qiE '^/go( |$)'; then
             mode=go
             arg=$(printf '%s' "$first" | awk '{print tolower($2)}')
-            case "$arg" in research|plan|design|dev|test|review) until=$arg;; esac
+            case "$arg" in triage|research|plan|design|dev|test|review) until=$arg;; esac
           fi
           echo "mode=$mode" >> "$GITHUB_OUTPUT"
           echo "until=$until" >> "$GITHUB_OUTPUT"

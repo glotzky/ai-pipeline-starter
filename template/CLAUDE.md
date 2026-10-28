@@ -35,6 +35,11 @@ A change is done only when: unit tests cover every new or changed behavior; lint
 ## Deployment and operations
 - TODO: where this deploys, how a preview or release is made, and how to roll back. Agents do not deploy.
 
+## Run and demo
+- How to start the app for a demo screenshot: TODO (for example `npm run dev -- --host 127.0.0.1 --port 4173`). Vite projects are detected automatically; for anything else set the repository variable `PIPELINE_DEMO_CMD` (and `PIPELINE_DEMO_URL`).
+- Pages worth a screenshot: TODO (for example `/` and `/leads`; set `PIPELINE_DEMO_PATHS` to a comma-separated list).
+- The demo app runs without the pipeline's secrets, so use fake or empty data. Screenshots are saved on the run's branch and shown in the pull request.
+
 ## Pipeline rules
 - Work happens on `pipeline/*` branches. Only the owner merges to the default branch.
 - Do not edit `.github/`, `.claude/`, `pipeline/`, `.pipeline/spec.md` or `.pipeline/design.md`.

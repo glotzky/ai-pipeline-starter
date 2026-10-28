@@ -88,6 +88,10 @@ gh pr list --draft                                   # draft PRs waiting for you
 gh pr ready <n> && gh pr merge <n> --merge --delete-branch
 ```
 
+## Cheaper, clearer runs (v1.3)
+
+Triage labels each ask and picks the lightest route (`FORCE: yes` overrides a stop). `PIPELINE_MAX_ACU` caps ACUs. The tester confirms screenshots of the running app. Optional free prompt engineer: `PIPELINE_PROMPT_ENGINEER=ollama`. Details: [docs/16](16-triage-acu-prompting-demo.md).
+
 ## Update the pipeline in a project
 
 `bash pipeline/update.sh` opens a pull request with the newest tagged version (never merges). `--check` shows whether the project matches the starter. Details: [docs/15-updating.md](15-updating.md).

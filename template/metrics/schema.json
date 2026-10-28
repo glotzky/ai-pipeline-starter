@@ -65,6 +65,7 @@
     "until": {
       "type": "string",
       "enum": [
+        "triage",
         "research",
         "plan",
         "design",
@@ -133,6 +134,7 @@
           "name": {
             "type": "string",
             "enum": [
+              "triage",
               "researcher",
               "planner",
               "designer",
@@ -140,7 +142,9 @@
               "install",
               "tester",
               "reviewer",
-              "pull_request"
+              "pull_request",
+              "prompt_engineer",
+              "demo"
             ]
           },
           "attempt": {
@@ -310,6 +314,29 @@
             "null"
           ],
           "minimum": 0
+        },
+        "acu_budget": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "description": "ACU budget triage set for the run; null when none was set"
+        },
+        "acu_limit": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0,
+          "description": "per-session max_acu_limit sent to Devin; null when none"
+        },
+        "over_budget": {
+          "type": [
+            "boolean",
+            "null"
+          ],
+          "description": "acus_consumed > acu_budget; null when either is unknown"
         }
       }
     },
@@ -485,6 +512,151 @@
         },
         "message": {
           "type": "string"
+        }
+      }
+    },
+    "triage": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "parsed",
+        "kind",
+        "size",
+        "route",
+        "needs_demo",
+        "acu_budget"
+      ],
+      "properties": {
+        "parsed": {
+          "type": "boolean"
+        },
+        "kind": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "bug",
+            "feature",
+            "chore",
+            "docs",
+            "no-code",
+            null
+          ]
+        },
+        "size": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "xs",
+            "s",
+            "m",
+            "l",
+            null
+          ]
+        },
+        "route": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "full",
+            "light",
+            "stop",
+            null
+          ]
+        },
+        "needs_demo": {
+          "type": "boolean"
+        },
+        "acu_budget": {
+          "type": [
+            "number",
+            "null"
+          ],
+          "minimum": 0
+        }
+      }
+    },
+    "prompt_engineer": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "backend",
+        "status"
+      ],
+      "properties": {
+        "backend": {
+          "type": "string",
+          "enum": [
+            "claude",
+            "ollama",
+            "openai"
+          ]
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "ok",
+            "invalid",
+            "unavailable"
+          ]
+        }
+      }
+    },
+    "demo": {
+      "type": [
+        "object",
+        "null"
+      ],
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "screenshots",
+        "reason",
+        "confirmed"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "ok",
+            "skipped",
+            "failed",
+            "not_needed"
+          ]
+        },
+        "screenshots": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "confirmed": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "PASS",
+            "FAIL",
+            "SKIPPED",
+            "missing",
+            null
+          ]
         }
       }
     }

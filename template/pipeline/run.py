@@ -11,6 +11,9 @@ from pathlib import Path
 
 import requests
 
+import demo as demo_mod
+import prompt_engineer
+import triage_lib
 from run_metrics import Recorder, parse_claude_output, scrub
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -19,7 +22,8 @@ AGENTS = ROOT / ".claude" / "agents"
 BASE_BRANCH = os.environ.get("BASE_BRANCH", "main")
 REPO = os.environ.get("GITHUB_REPOSITORY", "")
 REC = None  # metrics Recorder, created in main(); None-safe everywhere it is used
-STAGES = ["research", "plan", "design", "dev", "test", "review"]
+STAGES = ["triage", "research", "plan", "design", "dev", "test", "review"]
+DEVIN_WARNINGS = []  # notes from devin_run (for example: the ACU limit was rejected), added to the run summary
 
 
 def sh(*cmd, check=True):
@@ -75,7 +79,7 @@ def load_agent(name):
 def claude_stage(name, task, max_turns=40, attempt=1):
     meta, body = load_agent(name)
     print(f"\n=== {name} ({meta['model']}) ===", flush=True)
-    with REC.stage(name, attempt) if REC else nullcontext():
+    with REC.stage(name.replace("-", "_"), attempt) if REC else nullcontext():
         r = subprocess.run(
             ["claude", "-p", task, "--model", meta["model"], "--append-system-prompt", body,
              "--permission-mode", "acceptEdits", "--max-turns", str(max_turns),
@@ -86,7 +90,7 @@ def claude_stage(name, task, max_turns=40, attempt=1):
         # used exactly as before and no usage is recorded.
         text, usage = parse_claude_output(r.stdout)
         if REC:
-            REC.usage(name, meta["model"], usage)
+            REC.usage(name.replace("-", "_"), meta["model"], usage)
         (PIPE / "logs").mkdir(parents=True, exist_ok=True)
         (PIPE / "logs" / f"{name}.txt").write_text(text + "\n---STDERR---\n" + r.stderr)
         if r.returncode != 0:
@@ -138,7 +142,7 @@ ORG = os.environ.get("DEVIN_ORG_ID", "")
 DH = {"Authorization": f"Bearer {os.environ.get('DEVIN_API_KEY', '')}"}
 
 
-def devin_prompt(branch, feedback):
+def devin_prompt(branch, feedback, brief=None, budget=None):
     p = f"""You are the Developer stage of an automated pipeline. Work unattended and do not ask questions.
 
 Repository: {REPO}
@@ -153,14 +157,26 @@ Branch: {branch}  (already exists; check it out and commit directly to it)
 5. When done, write .pipeline/changes.md (files changed, what each change does, what the Tester should
    focus on, and a BLOCKERS section if anything prevented you from finishing), commit and push it.
    If you are blocked, record the blocker in changes.md and finish rather than waiting for a reply."""
+    if budget:
+        p += (f"\n\nACU budget: about {budget} ACUs for this whole task. Stay inside it: do not explore beyond what the spec "
+              "names, do not rewrite working code, and stop as soon as the acceptance criteria are met and the tests pass.")
+    if brief:
+        p += ("\n\nTask brief (written to save you time; .pipeline/spec.md is authoritative and the rules above always win):\n"
+              + brief)
     if feedback:
         p += f"\n\nThis is a REWORK pass. Fix the problems below, then update changes.md:\n\n{feedback}"
     return p
 
 
-def devin_run(prompt, timeout_min):
-    r = requests.post(f"{DEVIN}/organizations/{ORG}/sessions",
-                      headers={**DH, "Content-Type": "application/json"}, json={"prompt": prompt})
+def devin_run(prompt, timeout_min, acu_limit=None):
+    payload = {"prompt": prompt}
+    if acu_limit:
+        payload["max_acu_limit"] = int(acu_limit)  # Devin's per-session ACU cap
+    r = requests.post(f"{DEVIN}/organizations/{ORG}/sessions", headers={**DH, "Content-Type": "application/json"}, json=payload)
+    if r.status_code in (400, 422) and "max_acu_limit" in payload:
+        DEVIN_WARNINGS.append(f"Devin rejected max_acu_limit={payload['max_acu_limit']} (HTTP {r.status_code}); this session ran without a hard ACU cap.")
+        payload.pop("max_acu_limit")
+        r = requests.post(f"{DEVIN}/organizations/{ORG}/sessions", headers={**DH, "Content-Type": "application/json"}, json=payload)
     r.raise_for_status()
     s = r.json()
     url = s.get("url")
@@ -176,12 +192,56 @@ def devin_run(prompt, timeout_min):
         print(f"  Devin: {status} / {detail} | ACUs: {acus}", flush=True)
         if status in ("exit", "error", "suspended"):
             return url, status, acus
+        if detail == "total_session_limit_exceeded":  # documented status detail for the ACU cap
+            return url, "acu_limit", acus
         # Devin reports "running / waiting_for_user" when it is idle (finished, or asking a question).
         # Require two consecutive polls so a brief transient state is not mistaken for completion.
         idle_polls = idle_polls + 1 if detail == "waiting_for_user" else 0
         if idle_polls >= 2:
             return url, "waiting_for_user", acus
     raise TimeoutError(f"Devin session {url} exceeded {timeout_min} minutes")
+
+
+def apply_labels(issue, names):
+    """Label the issue with what triage decided. Best effort: labels never fail a run."""
+    if not issue or not names:
+        return
+    for n in names:
+        sh("gh", "label", "create", n, "--color", triage_lib.LABEL_COLORS[n.split(":")[0]], "--force", check=False)
+    sh("gh", "issue", "edit", issue, "--add-label", ",".join(names), check=False)
+
+
+def tester_task(demo):
+    task = "Do your job for the changes on this branch."
+    if demo["status"] == "ok":
+        shots = ", ".join(demo["screenshots"])
+        task += (f"\n\nDEMO: screenshots of the running app are in .pipeline/demo/ ({shots}) with a report in .pipeline/demo/report.json "
+                 "(HTTP status, console errors and failed requests per page). Open each image with the Read tool and compare it with the "
+                 "acceptance criteria in .pipeline/spec.md. Add a '## Demo' section to test-results.md saying, per screenshot, what is "
+                 "visible and which acceptance criterion it confirms. Then add a line `DEMO: PASS` (everything the criteria describe is "
+                 "visible, no error page) or `DEMO: FAIL` (something is missing, wrong or shows an error). If DEMO is FAIL, RESULT must be FAIL.")
+    else:
+        task += (f"\n\nDEMO: no screenshots were captured ({demo.get('reason') or 'not needed'}). Add the line `DEMO: SKIPPED` "
+                 "and one sentence saying why to test-results.md. Do not invent a demo.")
+    return task
+
+
+def demo_markdown(demo, branch):
+    if demo["status"] != "ok":
+        return f"## Demo\nNo screenshots: {demo.get('status')} ({demo.get('reason') or 'not needed for this change'}).\n"
+    out = ["## Demo", "Screenshots of the running app, captured by the pipeline on this branch:", ""]
+    for p in demo["pages"]:
+        if not p.get("file"):
+            out.append(f"- `{p['path']}`: could not be captured ({p.get('error', 'unknown error')})")
+            continue
+        url = f"https://github.com/{REPO}/blob/{branch}/.pipeline/demo/{p['file']}?raw=true"
+        notes = []
+        if p.get("http_status") and p["http_status"] >= 400:
+            notes.append(f"HTTP {p['http_status']}")
+        if p.get("console_errors"):
+            notes.append(f"{len(p['console_errors'])} console error(s)")
+        out += [f"**`{p['path']}`** {p.get('title') or ''}" + (f" ({', '.join(notes)})" if notes else ""), f"![{p['path']}]({url})", ""]
+    return "\n".join(out) + "\n"
 
 
 # ---------- main ----------
@@ -253,9 +313,40 @@ def main():
     def reached(stage):
         return a.until == stage
 
+    cap = triage_lib.max_acu()
+    issue = os.environ.get("ISSUE", "").strip()
+    issue = issue if issue.isdigit() else ""
+    brief = None
+
     try:
+        if fix:  # the original triage answer (if any) is on the branch; a human asked for this fix, so never stop on it
+            tri = triage_lib.decide(triage_lib.parse(read("triage.md")), cap, force=True)
+            brief = read("devin-brief.md").strip() or None
+        else:
+            if os.environ.get("PIPELINE_TRIAGE", "1") != "0":
+                claude_stage("triage", "Do your job for the idea in .pipeline/idea.md.", max_turns=15)
+            tri = triage_lib.decide(triage_lib.parse(read("triage.md")), cap, force=triage_lib.forced(a.idea))
+            REC.triage(tri)
+            apply_labels(issue, triage_lib.labels(tri))
+            if tri["parsed"]:
+                summary.append(f"Triage: **{tri['kind'] or '?'}**, size **{tri['size'] or '?'}**, route **{tri['route']}**, "
+                               f"ACU budget **{tri['acu_budget'] if tri['acu_budget'] else 'not set'}**"
+                               + (f" ({tri['reason']})" if tri.get("reason") else ""))
+            else:
+                summary.append("Triage: no usable answer, so the full route and the run-wide ACU cap are used.")
+            if tri["route"] == "stop":
+                stop("triage", "**Stopped by triage: this ask needs no code change.** "
+                     + (tri.get("reason") or "") + "\n\nWhat to do instead is in `.pipeline/triage.md` on the branch. "
+                     "To build anyway, add a line `FORCE: yes` to the brief and run `/go` again, or set the repository variable PIPELINE_TRIAGE=0.",
+                     reason="triage_no_code")
+            if reached("triage"): stop("triage", "Stopped after triage.")
+
         if not fix:
-            claude_stage("researcher", "Do your job for the idea in .pipeline/idea.md.")
+            if tri["route"] == "light":
+                (PIPE / "research.md").write_text("Research skipped by triage: this is a small change whose files are obvious. See .pipeline/idea.md and .pipeline/triage.md.\n")
+                summary.append("Research stage skipped (light route).")
+            else:
+                claude_stage("researcher", "Do your job for the idea in .pipeline/idea.md.")
             if reached("research"): stop("research")
 
             claude_stage("planner", "Do your job for the idea in .pipeline/idea.md.")
@@ -268,28 +359,66 @@ def main():
                 claude_stage("designer", "Do your job for the spec in .pipeline/spec.md.")
                 summary.append("Design brief produced (.pipeline/design.md).")
             if reached("design"): stop("design", "Stopped after design.")
+
+            pe = prompt_engineer.backend()
+            if pe != "off":
+                with (nullcontext() if pe == "claude" else REC.stage("prompt_engineer")):
+                    brief, pe_status = prompt_engineer.generate(
+                        pe, load_agent("prompt-engineer")[1], read("spec.md"), read("design.md"),
+                        claude_stage=claude_stage, brief_path=PIPE / "devin-brief.md")
+                REC.prompt_engineer(pe, pe_status)
+                if brief:
+                    (PIPE / "devin-brief.md").write_text(brief + "\n")
+                    summary.append(f"Prompt engineer ({pe}): brief written (.pipeline/devin-brief.md).")
+                else:
+                    (PIPE / "devin-brief.md").unlink(missing_ok=True)
+                    summary.append(f"Prompt engineer ({pe}): {pe_status}; the default developer prompt was used.")
             commit_and_push(branch, "pipeline: spec and design")
 
         feedback = ("Human feedback on the pull request. Apply it, keep every existing test passing, "
                     "and add tests for any behavior you change:\n" + a.idea) if fix else None
         verdict, result, devin_urls = "UNKNOWN", "UNKNOWN", []
+        demo = {"status": "skipped", "reason": "not needed for this change", "screenshots": [], "pages": []}
+        REC.devin_budget(tri["acu_budget"], tri["acu_limit"])
         for attempt in range(a.max_retries + 1):
+            used = REC.data["devin"]["acus_consumed"]
+            if attempt > 0 and used is not None and used >= tri["cap"]:
+                stop("dev", f"**Stopped before another Devin attempt: {used:g} ACUs are already used, and the run-wide cap is {tri['cap']}.** "
+                     "Raise the repository variable PIPELINE_MAX_ACU, or split the task into smaller ones.", code=1, reason="acu_cap_reached")
             print(f"\n##### Developer attempt {attempt + 1} #####", flush=True)
             with REC.stage("developer", attempt + 1):
-                url, status, acus = devin_run(devin_prompt(branch, feedback), a.devin_timeout)
+                url, status, acus = devin_run(devin_prompt(branch, feedback, brief, tri["acu_budget"]), a.devin_timeout,
+                                              acu_limit=tri["acu_limit"])
             REC.developer_attempt(acus)
             acu_text = f"{acus} ACUs" if isinstance(acus, (int, float)) and not isinstance(acus, bool) else "ACUs not reported"
             devin_urls.append(f"{url} ({acu_text})")
             before = sh("git", "rev-parse", "HEAD")
             sh("git", "pull", "--ff-only", "origin", branch)
             if sh("git", "rev-parse", "HEAD") == before:
+                hit_limit = status == "acu_limit" or (isinstance(acus, (int, float)) and not isinstance(acus, bool) and acus >= tri["acu_limit"])
+                if hit_limit:
+                    stop("dev", f"**Devin reached its ACU limit ({acu_text} of {tri['acu_limit']}) before pushing any commits.** "
+                         f"Raise PIPELINE_MAX_ACU or split the task. Session: {url}", code=1, reason="acu_limit_reached")
                 stop("dev", f"**Devin finished ({status}) but pushed no commits.** Open the session to see why (often: Devin cannot access the repo). Session: {url}", code=1, reason="devin_no_commits")
             if reached("dev"): stop("dev", f"Stopped after dev. Devin session: {url} ({acu_text})")
             with REC.stage("install", attempt + 1):
                 install_deps()
 
-            claude_stage("tester", "Do your job for the changes on this branch.", max_turns=60, attempt=attempt + 1)
+            shutil.rmtree(PIPE / "demo", ignore_errors=True)
+            demo_enabled = os.environ.get("PIPELINE_DEMO", "1") != "0"
+            if tri["needs_demo"] and demo_enabled:
+                with REC.stage("demo", attempt + 1):
+                    demo = demo_mod.run_demo(ROOT, PIPE / "demo", os.environ, PIPE / "logs")
+                REC.demo(demo["status"], len(demo["screenshots"]), demo.get("reason"))
+            else:
+                demo = {"status": "skipped", "screenshots": [], "pages": [],
+                        "reason": "not needed for this change" if not tri["needs_demo"] else "turned off (PIPELINE_DEMO=0)"}
+                REC.demo("not_needed" if not tri["needs_demo"] else "skipped", 0, demo["reason"])
+
+            claude_stage("tester", tester_task(demo), max_turns=60, attempt=attempt + 1)
             results = read("test-results.md")
+            m_demo = re.search(r"^DEMO:\s*(PASS|FAIL|SKIPPED)", results, re.M)
+            REC.demo_confirmed(m_demo.group(1) if m_demo else ("missing" if demo["status"] == "ok" else None))
             result = "PASS" if re.match(r"\s*RESULT:\s*PASS", results) else "FAIL"
             gap = missing_tests() if result == "PASS" else ""
             if gap:
@@ -321,11 +450,17 @@ def main():
         minutes = (time.time() - started) / 60
         total_acus = REC.data["devin"]["acus_consumed"]  # None when Devin reported no ACUs: never shown as 0
         total_acu_text = f"{total_acus:g} ACUs" if total_acus is not None else "ACUs not reported"
+        summary += DEVIN_WARNINGS
+        summary.append("ACU check: " + triage_lib.acu_line(total_acus, tri["acu_budget"], tri["cap"]))
+        if demo["status"] == "ok":
+            summary.append(f"Demo: {len(demo['screenshots'])} screenshot(s) captured; tester confirmation: **{REC.data['demo']['confirmed'] or 'none'}**.")
+        elif tri["needs_demo"]:
+            summary.append(f"Demo: {demo['status']} ({demo.get('reason')}).")
         summary += [f"Tests: **{result}**", f"Verdict: **{verdict}**",
                     "Devin sessions: " + ", ".join(devin_urls),
                     f"Metrics: {minutes:.0f} min, {len(devin_urls)} Devin attempt(s), {total_acu_text} "
                     f"(full record: metrics/runs/{run_id}{"-fix" if fix else ""}.json)"]
-        body = "\n".join(summary) + "\n\n---\n\n" + read("review.md")
+        body = "\n".join(summary) + "\n\n" + (demo_markdown(demo, branch) + "\n" if tri["needs_demo"] else "") + "---\n\n" + read("review.md")
         (PIPE / "pr-body.md").write_text(body)
         with REC.stage("pull_request"):
             if fix:

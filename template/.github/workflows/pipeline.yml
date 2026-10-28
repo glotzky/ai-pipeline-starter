@@ -12,7 +12,7 @@ on:
         required: true
         default: review
         type: choice
-        options: [research, plan, design, dev, test, review]
+        options: [triage, research, plan, design, dev, test, review]
       issue:
         description: "Issue number to report back to (optional)"
         required: false
@@ -59,6 +59,19 @@ jobs:
         run: |
           git config user.name "ai-pipeline"
           git config user.email "ai-pipeline@users.noreply.github.com"
+      - name: Start Ollama (optional prompt engineer)
+        # Only when PIPELINE_PROMPT_ENGINEER=ollama and no OLLAMA_HOST is set: installs Ollama on this runner and pulls a
+        # small model (free, but slow on a CPU runner and it downloads the model every run). A remote or self-hosted
+        # OLLAMA_HOST is the faster path. If this step fails the pipeline still runs with the default developer prompt.
+        if: ${{ vars.PIPELINE_PROMPT_ENGINEER == 'ollama' && vars.OLLAMA_HOST == '' }}
+        continue-on-error: true
+        env:
+          OLLAMA_MODEL: ${{ vars.OLLAMA_MODEL || 'llama3.2:3b' }}
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          (ollama serve > /tmp/ollama.log 2>&1 &)
+          for i in $(seq 1 30); do curl -fsS http://localhost:11434/api/tags >/dev/null 2>&1 && break; sleep 2; done
+          ollama pull "$OLLAMA_MODEL"
       - name: Run pipeline
         id: pipe
         env:
@@ -72,6 +85,20 @@ jobs:
           BASE_BRANCH: ${{ github.event.repository.default_branch }}
           PIPELINE_INSTALL_CMD: ${{ vars.PIPELINE_INSTALL_CMD }}
           PIPELINE_METRICS: ${{ vars.PIPELINE_METRICS }}
+          ISSUE: ${{ inputs.issue }}
+          PIPELINE_TRIAGE: ${{ vars.PIPELINE_TRIAGE }}
+          PIPELINE_MAX_ACU: ${{ vars.PIPELINE_MAX_ACU }}
+          PIPELINE_REQUIRE_TESTS: ${{ vars.PIPELINE_REQUIRE_TESTS }}
+          PIPELINE_DEMO: ${{ vars.PIPELINE_DEMO }}
+          PIPELINE_DEMO_CMD: ${{ vars.PIPELINE_DEMO_CMD }}
+          PIPELINE_DEMO_URL: ${{ vars.PIPELINE_DEMO_URL }}
+          PIPELINE_DEMO_PATHS: ${{ vars.PIPELINE_DEMO_PATHS }}
+          PIPELINE_PROMPT_ENGINEER: ${{ vars.PIPELINE_PROMPT_ENGINEER }}
+          OLLAMA_HOST: ${{ vars.OLLAMA_HOST || (vars.PIPELINE_PROMPT_ENGINEER == 'ollama' && 'http://localhost:11434') || '' }}
+          OLLAMA_MODEL: ${{ vars.OLLAMA_MODEL }}
+          PIPELINE_PE_URL: ${{ vars.PIPELINE_PE_URL }}
+          PIPELINE_PE_MODEL: ${{ vars.PIPELINE_PE_MODEL }}
+          PIPELINE_PE_API_KEY: ${{ secrets.PIPELINE_PE_API_KEY }}
         run: |
           if [ -n "$FIX_BRANCH" ]; then
             python pipeline/run.py "$IDEA" --until "$UNTIL" --fix-branch "$FIX_BRANCH"
@@ -87,6 +114,15 @@ jobs:
           path: metrics/runs/*.json
           if-no-files-found: ignore
           retention-days: 90
+      - name: Save demo screenshots
+        # Screenshots are also committed to the run's branch (.pipeline/demo/) and embedded in the pull request.
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: pipeline-demo-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .pipeline/demo/
+          if-no-files-found: ignore
+          retention-days: 30
       - name: Report back to the issue
         if: ${{ always() && inputs.issue != '' }}
         env:
@@ -101,6 +137,9 @@ jobs:
             PR=$(gh pr list --repo "$GITHUB_REPOSITORY" --head "$BRANCH" --json url --jq '.[0].url // ""' || true)
           fi
           MSG="Pipeline finished: **$OUTCOME**."
+          if [ -f "$RUNNER_TEMP/pipeline-summary.md" ] && grep -q "Stopped by triage" "$RUNNER_TEMP/pipeline-summary.md"; then
+            MSG="Pipeline stopped by triage: **no code change needed**, so nothing was built."
+          fi
           if [ -n "$BRANCH" ]; then MSG="$MSG Branch: \`$BRANCH\`."; fi
           if [ -n "$PR" ]; then MSG="$MSG Draft PR: $PR ."; fi
           MSG="$MSG Run log: $RUN_URL"

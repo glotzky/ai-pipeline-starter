@@ -54,6 +54,7 @@ Created by Gil Lotzky. Licensed under the [MIT License](LICENSE).
 13. [Engineering practices](docs/13-engineering-practices.md): how each team practice is covered, where it lives and its verification status
 14. [Optional: Vercel](docs/14-optional-vercel.md): previews and hosting, adopt later, not part of the pipeline
 15. [Updating your projects](docs/15-updating.md): pull starter improvements into every project without losing your edits
+16. [Triage, ACU budget, prompt engineer, demo screenshots](docs/16-triage-acu-prompting-demo.md): cheaper runs and a visible demo (v1.3)
 15. [Tools used](docs/tools.md) and [Cheat sheet](docs/cheatsheet.md)
 
 ## Quick start (about 45 minutes, most of it account setup)
@@ -89,6 +90,7 @@ This kit was built interactively and tested in stages. Be clear about what is pr
 | Unit-test enforcement (planner, Devin, tester, reviewer prompts plus an orchestrator gate) | Live runs produced unit-test files alongside the code; the gate itself was tested in a scratch repo and **has not yet been seen blocking a run in Actions** |
 | Run metrics (`metrics/`, `pipeline/run_metrics.py`): per-run JSON record, schema, summary script, artifact upload | Tests pass locally. **Live:** two real pipeline runs committed `metrics/runs/*.json` records to the project. Still to review: the record contents and the Actions artifact upload |
 | Install, `install.sh --upgrade` and `pipeline/update.sh` (download from GitHub by tag) | **Verified live** on a real project (v1.1.0): first install over an older install, upgrade keeping Dependabot action versions, and a download of the tagged release. The v1.2.0 pull-request and `--check` modes are tested locally against stubs and a local bare repo, **not yet run against real GitHub**. PowerShell installer is first-install only and untested |
+| Triage, ACU budget, prompt engineer, demo screenshots (v1.3) | Tested locally: parsing, routing, labels, ACU limit/budget/cap against a fake Devin, prompt-engineer backends against local stub servers, and the demo step against real headless Chromium. **Not yet run in Actions or against the real Devin API** (the `max_acu_limit` field, Playwright and Ollama on a runner, how screenshots show in the GitHub mobile app) |
 | Failure watch and Update check workflows; `queue.yml` environment fix | Written and merged into a real project, **not yet triggered** (they run only when a workflow fails, on Mondays, or when a pipeline PR is merged) |
 | Clean `.pipeline/` at run start, stop reason in the issue comment, loud failure when Devin pushes nothing | Written, tested in a scratch repo, **not yet run in Actions** |
 | `install_deps()` step, `install.ps1`, `set-secrets.sh/.ps1` | Written, **not tested** |

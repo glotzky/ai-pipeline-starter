@@ -11,6 +11,16 @@ How:
 -->
 # Changelog
 
+## 1.3.0 (unreleased)
+
+- **Triage stage** (`.claude/agents/triage.md`, `pipeline/triage_lib.py`): labels the ask (`kind:`, `size:`, `route:`), skips research for small asks, stops no-code asks before any spend (and says so instead of reporting success), sets an ACU budget. `FORCE: yes` overrides a stop. `/go triage` stops after it. Off with `PIPELINE_TRIAGE=0`.
+- **ACU budget:** the budget goes into the developer prompt and to Devin as `max_acu_limit`; `PIPELINE_MAX_ACU` (default 10) caps the whole run; every summary and metrics record states whether the run stayed inside its budget (unknown stays unknown).
+- **Demo screenshots** (`pipeline/demo.py`): the app is started without the pipeline's secrets, pages are captured with headless Chromium, and the tester reads the images and writes `DEMO: PASS|FAIL|SKIPPED`. Screenshots go on the branch, in the PR description and in an Actions artifact.
+- **Prompt engineer** (`pipeline/prompt_engineer.py`, optional): backends `claude`, `ollama`, `openai`-compatible; output validated; always falls back to the default prompt. Workflow step can install Ollama on the runner.
+- Metrics schema: optional `triage`, `prompt_engineer`, `demo` objects and `devin.acu_budget/acu_limit/over_budget`; `summarize.py` reports the within-budget rate, triage routes and demo pass rate.
+- The workflow now passes `PIPELINE_REQUIRE_TESTS` through. Tests check that every variable the pipeline reads is wired in `pipeline.yml`, and that the health check knows every module and agent.
+- See `docs/16-triage-acu-prompting-demo.md`.
+
 ## 1.2.1 (2026-10-26)
 
 - **Fixed:** `update-check.yml` was invalid YAML (issue text at column 0 inside a `run: |` block), so GitHub rejected the workflow. Its issue body is now written with `echo`. New `tests/test_yaml.py` parses every template YAML file (with PyYAML when installed, and with a dependency-free check that catches this exact mistake), so an invalid workflow can no longer ship unnoticed.
@@ -24,14 +34,14 @@ How:
 - Per-run metrics: `metrics/` (schema, README, `summarize.py`) and `pipeline/run_metrics.py`, wired into `run.py`. Records stage timings, retries, tests, verdict, PR, Devin ACUs, Claude tokens and CLI-reported cost; saved on the run branch and as an Actions artifact; incomplete runs are recorded honestly; no secrets or free text.
 - Claude stages now call `claude -p --output-format json` to get usage; output that is not that JSON is used as before.
 - A fix run writes `<run_id>-fix.json`. The `.pipeline/metrics.json` file added earlier is replaced by `metrics/runs/`.
-- Added `tests/` (98 tests, passing on Linux and macOS). Not yet run in GitHub Actions.
+- Added `tests/` (52 tests at the time, passing on Linux and macOS). Not yet run in GitHub Actions.
 - **Upgrades:** the installer writes `.pipeline-version`; `install.sh --upgrade` updates files you have not edited, writes `.pipeline-new` beside ones you have, and never touches `CLAUDE.md` etc. New weekly **Update check** workflow opens an issue when a newer tagged version exists. See `docs/15-updating.md`.
 - `pipeline/update.sh` in every project: `bash pipeline/update.sh` downloads the newest tagged starter from GitHub and runs the upgrade. Anyone who installed from your repository receives your updates this way, with their own edits kept.
 - **Fixed:** the installer stopped silently on a first install over an older install (no `.pipeline-version` yet); now covered by a test.
 - **Fixed:** install and upgrade keep the GitHub Action versions a project already uses (Dependabot bumps), instead of downgrading them to the template's pins.
 - **Failure watch:** new workflow that opens a `[bug]` issue (run link plus failing log lines) when CI, Queue, Intake, Commands or Project plan fails; you reply `/go` and the pipeline opens a draft PR. Optional `PIPELINE_AUTO_FIX=true` starts CI fixes automatically (max 3 per 24 h).
 - **Fixed:** `queue.yml` used `environment:` on a `pull_request` job, so an environment limited to `main` refused it (`Branch "refs/pull/N/merge" is not allowed to deploy`). A test now blocks `environment:` on any pull_request workflow.
-- The installer no longer copies `__pycache__`, `.pyc` or `.DS_Store` files; the tests no longer create them inside `template/`; added installer tests (98 tests in total).
+- The installer no longer copies `__pycache__`, `.pyc` or `.DS_Store` files; the tests no longer create them inside `template/`; added installer tests.
 - The PR and issue summary now says "ACUs not reported" instead of showing "None" or a made-up 0.0 when Devin reports no ACUs.
 
 ## 1.0.0 (2026-10-25)

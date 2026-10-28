@@ -40,12 +40,20 @@ if "planning specialist" in sysprompt:
     open(pipe + "/spec.md", "w").write(head + "\nNEEDS_DESIGN: no\n# spec\n")
 elif "test specialist" in sysprompt:
     counter = os.environ["FAKE_COUNTER"]
+    if os.environ.get("FAKE_TESTER_LOG"):
+        open(os.environ["FAKE_TESTER_LOG"], "a").write(args[args.index("-p") + 1] + "\n====\n")
     n = int(open(counter).read()) if os.path.exists(counter) else 0
     open(counter, "w").write(str(n + 1))
     fails = int(os.environ.get("FAKE_TEST_FAILS", "0"))
-    open(pipe + "/test-results.md", "w").write("RESULT: FAIL\nbroken\n" if n < fails else "RESULT: PASS\nok\n")
+    demo_line = os.environ.get("FAKE_DEMO_LINE", "")
+    open(pipe + "/test-results.md", "w").write(("RESULT: FAIL\nbroken\n" if n < fails else "RESULT: PASS\nok\n") + (demo_line + "\n" if demo_line else ""))
 elif "senior reviewer" in sysprompt:
     text = os.environ.get("FAKE_VERDICT", "VERDICT: SHIP") + "\nreview text"
+elif "triage lead" in sysprompt:
+    if os.environ.get("FAKE_TRIAGE") != "none":
+        open(pipe + "/triage.md", "w").write(os.environ.get("FAKE_TRIAGE", "KIND: feature\nSIZE: m\nROUTE: full\nNEEDS_DEMO: no\nACU_BUDGET: 4\nREASON: test\n") .replace("\\n", "\n") + "\n## Delegation\n")
+elif "briefs for an autonomous" in sysprompt:
+    open(pipe + "/devin-brief.md", "w").write(os.environ.get("FAKE_BRIEF", "## Goal\nx\n## Files\n- a\n## Tests\n- a.test covers happy path and failure\n## Done when\n- ok\n") + "\n" + "pad " * 40)
 elif "research specialist" in sysprompt:
     open(pipe + "/research.md", "w").write("research")
 if mode == "text":
@@ -107,15 +115,16 @@ class Sandbox:
         shutil.rmtree(self.tmp, ignore_errors=True)
 
     # ---- a fake Devin: pushes a commit from a separate clone, like the real one ----
-    def devin(self, tests_from_attempt=1, push=True, acus=2.5, raises=None):
-        calls = []
+    def devin(self, tests_from_attempt=1, push=True, acus=2.5, raises=None, status="waiting_for_user"):
+        calls, limits = [], []
 
-        def devin_run(prompt, timeout):
+        def devin_run(prompt, timeout, acu_limit=None):
             calls.append(prompt)
+            limits.append(acu_limit)
             if raises:
                 raise raises
             if not push:
-                return SESSION_LINK, "waiting_for_user", acus
+                return SESSION_LINK, status, acus
             branch = git("rev-parse", "--abbrev-ref", "HEAD", cwd=self.project)
             d = Path(tempfile.mkdtemp(dir=self.tmp))
             subprocess.run(["git", "clone", "-q", str(self.origin), str(d)], check=True)
@@ -131,9 +140,10 @@ class Sandbox:
             git("add", "-A", cwd=d)
             git("commit", "-qm", "devin work", cwd=d)
             git("push", "-q", "origin", branch, cwd=d)
-            return SESSION_LINK, "waiting_for_user", acus
+            return SESSION_LINK, status, acus
 
         devin_run.calls = calls
+        devin_run.limits = limits
         return devin_run
 
     def run(self, *args, env=None, devin=None):
@@ -148,6 +158,8 @@ class Sandbox:
                 "RUNNER_TEMP": str(self.tmp), "GITHUB_RUN_ID": "12345", "GITHUB_RUN_ATTEMPT": "1",
                 "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@example.com",
                 "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com",
+                **({"PLAYWRIGHT_BROWSERS_PATH": saved[0]["PLAYWRIGHT_BROWSERS_PATH"]} if "PLAYWRIGHT_BROWSERS_PATH" in saved[0] else {}),
+                "PIPELINE_TRIAGE": "0",  # older tests count Claude calls; tests of triage turn it on explicitly
             })
             os.environ.update(env or {})
             os.chdir(self.project)

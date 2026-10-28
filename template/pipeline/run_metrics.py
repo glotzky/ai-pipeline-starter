@@ -101,7 +101,11 @@ class Recorder:
             "tests": {"result": "not_run", "attempts": 0, "gate_failed": False},
             "review": {"verdict": "not_run"},
             "pull_request": {"created": False, "updated": False, "number": None, "url": None},
-            "devin": {"sessions": 0, "sessions_with_acus": 0, "acus_consumed": None},
+            "devin": {"sessions": 0, "sessions_with_acus": 0, "acus_consumed": None,
+                      "acu_budget": None, "acu_limit": None, "over_budget": None},
+            "triage": None,
+            "prompt_engineer": None,
+            "demo": None,
             "ai_usage": {"calls": [], "totals": {
                 "calls": 0, "calls_with_cost": 0, "cost_complete": None, "cost_usd": None,
                 "input_tokens": None, "output_tokens": None,
@@ -179,7 +183,41 @@ class Recorder:
         if value is not None:
             d["sessions_with_acus"] += 1
             d["acus_consumed"] = round((d["acus_consumed"] or 0) + value, 3)
+        self._budget_check()
         self.save()
+
+    def _budget_check(self):
+        d = self.data["devin"]
+        used, budget = d["acus_consumed"], d["acu_budget"]
+        d["over_budget"] = None if (used is None or not budget) else used > budget  # unknown stays unknown
+
+    def devin_budget(self, budget, limit):
+        """The ACU budget triage set and the per-session limit sent to Devin (None when not set)."""
+        d = self.data["devin"]
+        d["acu_budget"], d["acu_limit"] = _number(budget), _number(limit)
+        self._budget_check()
+        self.save()
+
+    def triage(self, t):
+        self.data["triage"] = {"parsed": bool(t.get("parsed")), "kind": t.get("kind"), "size": t.get("size"),
+                               "route": t.get("route"), "needs_demo": bool(t.get("needs_demo")),
+                               "acu_budget": _number(t.get("acu_budget"))}
+        self.save()
+
+    def prompt_engineer(self, backend, status):
+        self.data["prompt_engineer"] = {"backend": backend, "status": status}
+        self.save()
+
+    def demo(self, status, screenshots, reason=None):
+        self.data["demo"] = {"status": status, "screenshots": int(screenshots),
+                             "reason": scrub(reason, 200) if reason else None, "confirmed": None}
+        self.save()
+
+    def demo_confirmed(self, value):
+        """What the tester wrote on its DEMO line (PASS, FAIL, SKIPPED), or 'missing' if screenshots existed but it wrote none."""
+        if self.data["demo"] is not None:
+            self.data["demo"]["confirmed"] = value
+            self.save()
 
     def retry(self, reason):
         self.data["retries"]["reasons"].append(reason)

@@ -26,7 +26,10 @@ The record is written when the run starts (status `incomplete`) and rewritten af
 | `tests` | Final `result` (`PASS`/`FAIL`/`not_run`), number of attempts, whether the missing-unit-tests gate ever fired | Automatic. **Test counts are not recorded**: the tester reports them in prose, which is not reliable to parse |
 | `review.verdict` | `SHIP`, `NEEDS WORK`, `BLOCK`, `UNKNOWN` or `not_run` | Automatic |
 | `pull_request` | Created or updated, number and URL | Automatic |
-| `devin` | Sessions, how many reported ACUs, total `acus_consumed` | Automatic. Devin exposes ACUs only; **no dollar cost is computed** because the ACU rate depends on your plan |
+| `devin` | Sessions, how many reported ACUs, total `acus_consumed`, `acu_budget` (from triage), `acu_limit` (sent to Devin), `over_budget` | Automatic. Devin exposes ACUs only; **no dollar cost is computed** because the ACU rate depends on your plan. `over_budget` is `null` when either number is unknown |
+| `triage` | Kind, size, route, whether a demo was needed, ACU budget, and whether triage gave a usable answer (`parsed`) | Automatic (v1.3). `null` on fix runs and when triage is off |
+| `prompt_engineer` | Backend (`claude`, `ollama`, `openai`) and status (`ok`, `invalid`, `unavailable`) | Automatic (v1.3). `null` when the stage is off |
+| `demo` | Status (`ok`, `skipped`, `failed`, `not_needed`), number of screenshots, reason, and what the tester confirmed (`PASS`, `FAIL`, `SKIPPED`, `missing`) | Automatic (v1.3). `missing` means screenshots existed but the tester wrote no `DEMO:` line |
 | `ai_usage.calls[]` | Per Claude call: stage, model, input, output, cache-creation and cache-read tokens, `cost_usd`, `num_turns` | Automatic, from the Claude CLI's own JSON result |
 | `ai_usage.totals` | Sums over the calls that reported a value. `cost_complete` is `false` if any call reported no cost | Automatic |
 | `github` | Workflow run id and attempt | Automatic |

@@ -37,6 +37,21 @@ class WorkflowTests(unittest.TestCase):
         text = (WF / "failure-watch.yml").read_text()
         self.assertIn('"${AUTO:-}" = "true"', text)
 
+    def test_health_check_knows_every_pipeline_module_and_agent(self):
+        text = (WF / "health-check.yml").read_text()
+        for f in sorted((REPO / "template" / "pipeline").glob("*.py")):
+            self.assertIn(f"pipeline/{f.name}", text, f"{f.name} is not checked by the health check")
+        for f in sorted((REPO / "template" / ".claude" / "agents").glob("*.md")):
+            self.assertIn(f".claude/agents/{f.name}", text, f"{f.name} is not checked by the health check")
+
+    def test_every_repository_variable_the_pipeline_reads_is_passed_to_it(self):
+        run_py = "".join(p.read_text() for p in (REPO / "template" / "pipeline").glob("*.py"))
+        wf = code((WF / "pipeline.yml").read_text())
+        for var in sorted(set(re.findall(r'environ(?:\.get\(|\[)"(PIPELINE_[A-Z_]+|OLLAMA_[A-Z_]+|ISSUE)"', run_py))):
+            if var in ("PIPELINE_PE_TIMEOUT", "PIPELINE_DEMO_WAIT", "PIPELINE_DEMO_NO_INSTALL"):
+                continue  # tuning knobs for tests and rare cases: not wired on purpose
+            self.assertIn(f"{var}:", wf, f"{var} is read by the pipeline but not passed in pipeline.yml")
+
     def test_health_check_lists_failure_watch(self):
         self.assertIn("failure-watch.yml", (WF / "health-check.yml").read_text())
 

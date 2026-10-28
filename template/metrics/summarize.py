@@ -135,6 +135,15 @@ def summarize(records, kind=None):
     tokens = {f: [r["ai_usage"]["totals"][f] for r in records if r["ai_usage"]["totals"][f] is not None]
               for f in ("input_tokens", "output_tokens")}
 
+    budgeted = [r["devin"].get("over_budget") for r in records if r["devin"].get("over_budget") is not None]
+    routes = {}
+    for r in records:
+        t = r.get("triage")
+        if t and t["route"]:
+            routes[t["route"]] = routes.get(t["route"], 0) + 1
+    demos = [r["demo"] for r in records if r.get("demo") and r["demo"]["status"] == "ok"]
+    confirmed = [d for d in demos if d["confirmed"] in ("PASS", "FAIL")]
+
     stage_times = {}
     for r in records:
         for s in r["stages"]:
@@ -155,6 +164,13 @@ def summarize(records, kind=None):
                              "runs_with_partial_cost": partial_cost,
                              "note": "Claude cost as reported by the Claude CLI; excludes Devin (billed in ACUs)"},
         "average_devin_acus": {"value": _mean(acus), "based_on": len(acus)},
+        "runs_within_acu_budget": {"value": round(sum(1 for b in budgeted if not b) / len(budgeted), 4) if budgeted else None,
+                                   "based_on": len(budgeted),
+                                   "note": "runs where both the ACU budget and Devin's reported ACUs are known"},
+        "triage_routes": routes,
+        "demo_pass_rate": {"value": round(sum(1 for d in confirmed if d["confirmed"] == "PASS") / len(confirmed), 4) if confirmed else None,
+                           "based_on": len(confirmed),
+                           "note": "runs with screenshots where the tester wrote DEMO: PASS or FAIL"},
         "average_tokens": {f: {"value": _mean(v), "based_on": len(v)} for f, v in tokens.items()},
     }
 
@@ -188,7 +204,11 @@ def render(s, skipped):
         + (f"  ({s['average_cost_usd']['runs_with_partial_cost']} run(s) had calls with no cost reported)"
            if s["average_cost_usd"]["runs_with_partial_cost"] else ""),
         f"Average Devin ACUs:        {_fmt(s['average_devin_acus'])}",
+        f"Runs within ACU budget:    {_fmt(s['runs_within_acu_budget'], 'pct')}",
+        f"Demo confirmed PASS:       {_fmt(s['demo_pass_rate'], 'pct')}",
     ]
+    if s["triage_routes"]:
+        lines.append("Triage routes:             " + ", ".join(f"{k} {v}" for k, v in sorted(s["triage_routes"].items())))
     if s["median_stage_seconds"]:
         lines.append("Median time per stage:")
         for name, e in s["median_stage_seconds"].items():
