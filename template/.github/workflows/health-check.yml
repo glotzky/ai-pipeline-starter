@@ -33,7 +33,7 @@ jobs:
       - name: Required files exist
         run: |
           missing=0
-          for f in pipeline/run.py .claude/agents/researcher.md .claude/agents/planner.md .claude/agents/designer.md .claude/agents/tester.md .claude/agents/reviewer.md .claude/agents/interviewer.md .github/workflows/pipeline.yml .github/workflows/intake.yml .github/ISSUE_TEMPLATE/idea.yml .github/workflows/ci.yml .github/workflows/commands.yml .github/workflows/queue.yml .github/workflows/failure-watch.yml .github/workflows/update-check.yml .github/workflows/project-plan.yml .claude/agents/project-planner.md pipeline/project_plan.py pipeline/run_metrics.py pipeline/triage_lib.py pipeline/prompt_engineer.py pipeline/demo.py .claude/agents/triage.md .claude/agents/prompt-engineer.md metrics/schema.json metrics/summarize.py .github/PULL_REQUEST_TEMPLATE.md; do
+          for f in pipeline/run.py .claude/agents/researcher.md .claude/agents/planner.md .claude/agents/designer.md .claude/agents/tester.md .claude/agents/reviewer.md .claude/agents/interviewer.md .github/workflows/pipeline.yml .github/workflows/intake.yml .github/ISSUE_TEMPLATE/idea.yml .github/workflows/ci.yml .github/workflows/commands.yml .github/workflows/queue.yml .github/workflows/failure-watch.yml .github/workflows/update-check.yml .github/workflows/project-plan.yml .claude/agents/project-planner.md pipeline/project_plan.py pipeline/run_metrics.py pipeline/triage_lib.py pipeline/sve_lib.py pipeline/prompt_engineer.py pipeline/demo.py .claude/agents/triage.md .claude/agents/prompt-engineer.md metrics/schema.json metrics/summarize.py .github/PULL_REQUEST_TEMPLATE.md; do
             if [ -f "$f" ]; then echo "ok   $f"; else echo "MISSING $f"; missing=1; fi
           done
           exit $missing
@@ -46,7 +46,7 @@ jobs:
           echo "all three secrets present"
 
       - name: orchestrator compiles
-        run: python -m py_compile pipeline/run.py pipeline/project_plan.py pipeline/run_metrics.py pipeline/triage_lib.py pipeline/prompt_engineer.py pipeline/demo.py metrics/summarize.py && echo ok
+        run: python -m py_compile pipeline/run.py pipeline/project_plan.py pipeline/run_metrics.py pipeline/triage_lib.py pipeline/sve_lib.py pipeline/prompt_engineer.py pipeline/demo.py metrics/summarize.py && echo ok
 
       - name: Devin credentials (free call)
         run: |

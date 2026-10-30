@@ -99,6 +99,11 @@ jobs:
           PIPELINE_PE_URL: ${{ vars.PIPELINE_PE_URL }}
           PIPELINE_PE_MODEL: ${{ vars.PIPELINE_PE_MODEL }}
           PIPELINE_PE_API_KEY: ${{ secrets.PIPELINE_PE_API_KEY }}
+          PIPELINE_SVE_URL: ${{ vars.PIPELINE_SVE_URL }}
+          PIPELINE_SVE_TEST_CMD: ${{ vars.PIPELINE_SVE_TEST_CMD }}
+          PIPELINE_SVE_JUNIT: ${{ vars.PIPELINE_SVE_JUNIT }}
+          PIPELINE_SVE_GATE: ${{ vars.PIPELINE_SVE_GATE }}
+          PIPELINE_SVE_TOKEN: ${{ secrets.PIPELINE_SVE_TOKEN }}
         run: |
           if [ -n "$FIX_BRANCH" ]; then
             python pipeline/run.py "$IDEA" --until "$UNTIL" --fix-branch "$FIX_BRANCH"

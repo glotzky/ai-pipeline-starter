@@ -55,6 +55,7 @@ Created by Gil Lotzky. Licensed under the [MIT License](LICENSE).
 14. [Optional: Vercel](docs/14-optional-vercel.md): previews and hosting, adopt later, not part of the pipeline
 15. [Updating your projects](docs/15-updating.md): pull starter improvements into every project without losing your edits
 16. [Triage, ACU budget, prompt engineer, demo screenshots](docs/16-triage-acu-prompting-demo.md): cheaper runs and a visible demo (v1.3)
+18. [Specification verification (optional)](docs/18-spec-verification.md): ask an external engine what 'done' means and check it with test evidence
 15. [Tools used](docs/tools.md) and [Cheat sheet](docs/cheatsheet.md)
 
 ## Quick start (about 45 minutes, most of it account setup)

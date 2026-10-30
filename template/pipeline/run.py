@@ -13,6 +13,7 @@ import requests
 
 import demo as demo_mod
 import prompt_engineer
+import sve_lib
 import triage_lib
 from run_metrics import Recorder, parse_claude_output, scrub
 
@@ -163,6 +164,10 @@ Branch: {branch}  (already exists; check it out and commit directly to it)
     if brief:
         p += ("\n\nTask brief (written to save you time; .pipeline/spec.md is authoritative and the rules above always win):\n"
               + brief)
+    if read("acceptance.md").strip():
+        p += ("\n\nACCEPTANCE CRITERIA: .pipeline/acceptance.md lists numbered criteria (AC-001, ...) that an external engine checks. "
+              "Name at least one automated test per automatable criterion with its id, for example test_AC_003_rejects_empty_name or "
+              "it('AC-003 rejects an empty name'). A criterion counts as met only when a passing test names it.")
     if feedback:
         p += f"\n\nThis is a REWORK pass. Fix the problems below, then update changes.md:\n\n{feedback}"
     return p
@@ -317,11 +322,15 @@ def main():
     issue = os.environ.get("ISSUE", "").strip()
     issue = issue if issue.isdigit() else ""
     brief = None
+    sve_on = sve_lib.enabled()
+    sve_state, sve_result = None, None
 
     try:
         if fix:  # the original triage answer (if any) is on the branch; a human asked for this fix, so never stop on it
             tri = triage_lib.decide(triage_lib.parse(read("triage.md")), cap, force=True)
             brief = read("devin-brief.md").strip() or None
+            if sve_on and read("sve.json").strip():
+                sve_state = json.loads(read("sve.json"))
         else:
             if os.environ.get("PIPELINE_TRIAGE", "1") != "0":
                 claude_stage("triage", "Do your job for the idea in .pipeline/idea.md.", max_turns=15)
@@ -373,6 +382,16 @@ def main():
                 else:
                     (PIPE / "devin-brief.md").unlink(missing_ok=True)
                     summary.append(f"Prompt engineer ({pe}): {pe_status}; the default developer prompt was used.")
+            if sve_on:
+                try:
+                    sve_state = sve_lib.prepare(a.idea, title, os.environ)
+                    (PIPE / "acceptance.md").write_text(sve_state.pop("markdown"))
+                    (PIPE / "sve.json").write_text(json.dumps(sve_state, indent=2) + "\n")
+                    summary.append(f"Specification: {sve_state['criteria']} acceptance criteria from SVE "
+                                   f"(`{sve_state['specification_id']}`), written to .pipeline/acceptance.md.")
+                except sve_lib.SveError as e:
+                    sve_state = None
+                    summary.append(f"Specification verification unavailable: {scrub(e, 300)}. The branch cannot be marked verified.")
             commit_and_push(branch, "pipeline: spec and design")
 
         feedback = ("Human feedback on the pull request. Apply it, keep every existing test passing, "
@@ -381,6 +400,7 @@ def main():
         demo = {"status": "skipped", "reason": "not needed for this change", "screenshots": [], "pages": []}
         REC.devin_budget(tri["acu_budget"], tri["acu_limit"])
         for attempt in range(a.max_retries + 1):
+            sve_result = None  # each attempt is judged on its own
             used = REC.data["devin"]["acus_consumed"]
             if attempt > 0 and used is not None and used >= tri["cap"]:
                 stop("dev", f"**Stopped before another Devin attempt: {used:g} ACUs are already used, and the run-wide cap is {tri['cap']}.** "
@@ -425,7 +445,19 @@ def main():
                 result = "FAIL"
                 results = f"RESULT: FAIL\n{gap}\n\n(Tester report below)\n{results}"
                 (PIPE / "test-results.md").write_text(results)
-            REC.tests(result, gate_failed=bool(gap))
+            sve_block = False
+            if result == "PASS" and sve_on:
+                if sve_state is None:
+                    sve_result = sve_lib.unverified("SVE was unavailable when the specification was prepared.")
+                else:
+                    sve_result = sve_lib.verify(sve_state, os.environ, commit_sha=sh("git", "rev-parse", "HEAD"), root=ROOT)
+                (PIPE / "verification.md").write_text(sve_result["report"])
+                if sve_state is not None and sve_lib.blocks(sve_result):
+                    sve_block = True
+                    result = "FAIL"
+                    results = f"RESULT: FAIL\n{sve_lib.summary_line(sve_result)}\n\n{sve_lib.feedback(sve_result)}\n\n(Tester report below)\n{results}"
+                    (PIPE / "test-results.md").write_text(results)
+            REC.tests(result, gate_failed=bool(gap) or sve_block)
             commit_and_push(branch, f"pipeline: tests (attempt {attempt + 1}) {result}")
             if result == "FAIL" and attempt < a.max_retries:
                 feedback = "Tests failed:\n" + results
@@ -447,6 +479,11 @@ def main():
                 continue
             break
 
+        if sve_on and sve_result is None:
+            sve_result = sve_lib.unverified("The tests did not pass, so specification verification did not run.")
+        if sve_result is not None and sve_lib.blocks(sve_result) and verdict == "SHIP":
+            summary.append("Verdict lowered from SHIP to NEEDS WORK: the specification is not verified.")
+            verdict = "NEEDS WORK"
         minutes = (time.time() - started) / 60
         total_acus = REC.data["devin"]["acus_consumed"]  # None when Devin reported no ACUs: never shown as 0
         total_acu_text = f"{total_acus:g} ACUs" if total_acus is not None else "ACUs not reported"
@@ -456,11 +493,15 @@ def main():
             summary.append(f"Demo: {len(demo['screenshots'])} screenshot(s) captured; tester confirmation: **{REC.data['demo']['confirmed'] or 'none'}**.")
         elif tri["needs_demo"]:
             summary.append(f"Demo: {demo['status']} ({demo.get('reason')}).")
+        if sve_result is not None:
+            summary.append(sve_lib.summary_line(sve_result))
         summary += [f"Tests: **{result}**", f"Verdict: **{verdict}**",
                     "Devin sessions: " + ", ".join(devin_urls),
                     f"Metrics: {minutes:.0f} min, {len(devin_urls)} Devin attempt(s), {total_acu_text} "
                     f"(full record: metrics/runs/{run_id}{"-fix" if fix else ""}.json)"]
-        body = "\n".join(summary) + "\n\n" + (demo_markdown(demo, branch) + "\n" if tri["needs_demo"] else "") + "---\n\n" + read("review.md")
+        sve_md = ("## Specification verification\n" + sve_result["report"][:20000] + "\n") if sve_result is not None else ""
+        body = ("\n".join(summary) + "\n\n" + (demo_markdown(demo, branch) + "\n" if tri["needs_demo"] else "")
+                + sve_md + "---\n\n" + read("review.md"))
         (PIPE / "pr-body.md").write_text(body)
         with REC.stage("pull_request"):
             if fix:
